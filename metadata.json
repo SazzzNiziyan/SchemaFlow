@@ -1,0 +1,6 @@
+{
+  "name": "SchemaForge",
+  "description": "Visual database schema modeling studio and ORM generator for Mongoose, PostgreSQL, Prisma, SQL, and Drizzle with AI generation.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@layer utilities {
+  .dot-pattern {
+    background-image: radial-gradient(rgba(255, 255, 255, 0.08) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  
+  .font-code {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .bento-card {
+    background-color: #141414;
+    border: 1px solid #262626;
+    border-radius: 1.5rem;
+  }
+
+  .node-card {
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  }
+
+  .path-line {
+    stroke-dasharray: 8 6;
+    animation: dash 25s linear infinite;
+  }
+}
+
+@keyframes dash {
+  to {
+    stroke-dashoffset: -1000;
+  }
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #262626;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #404040;
+}
+
