@@ -55,7 +55,7 @@ export const CodeDrawer: React.FC<CodeDrawerProps> = ({ collections, framework, 
 
   return (
     <div
-      className={`fixed bottom-0 left-0 right-[320px] bg-[#0a0a0a] border-t border-neutral-800 z-20 transition-all duration-300 flex flex-col shadow-[0_-10px_30px_rgba(0,0,0,0.6)] ${
+      className={`fixed bottom-0 left-70 right-[320px] bg-[#0a0a0a] border-t border-neutral-800 z-20 transition-all duration-300 flex flex-col shadow-[0_-10px_30px_rgba(0,0,0,0.6)] ${
         isExpanded ? 'h-52' : 'h-10'
       }`}
     >
