@@ -9,6 +9,10 @@ import { AiGeneratorModal } from './components/AiGeneratorModal';
 import { NewCollectionModal } from './components/NewCollectionModal';
 import { ExportModal } from './components/ExportModal';
 import { DocsModal } from './components/DocsModal';
+import { ImportMongoDBModal } from './components/ImportMongoDBModal';
+import { RelationshipModal } from './components/RelationshipModal';
+import { ClearCanvasModal } from './components/ClearCanvasModal';
+import { ReactFlowProvider, useReactFlow } from '@xyflow/react';
 
 // Initial Schema State matching screenshot exactly
 const INITIAL_COLLECTIONS: CollectionNode[] = [
@@ -125,14 +129,13 @@ const INITIAL_COLLECTIONS: CollectionNode[] = [
   },
 ];
 
-export default function App() {
+function SchemaForgeApp() {
   const [collections, setCollections] = useState<CollectionNode[]>(INITIAL_COLLECTIONS);
   const [framework, setFramework] = useState<TargetFramework>('mongoose');
   const [selectedCollectionId, setSelectedCollectionId] = useState<string | null>('col_users');
-  const [selectedFieldId, setSelectedFieldId] = useState<string | null>('f_u_2'); // Default selected to 'email' per screenshot!
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>('f_u_2');
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [zoom, setZoom] = useState(1.0);
   const [activeTab, setActiveTab] = useState<'collections' | 'relationships' | 'ai' | 'docs'>('collections');
 
   // Modals
@@ -140,10 +143,51 @@ export default function App() {
   const [isNewCollectionOpen, setIsNewCollectionOpen] = useState(false);
   const [isExportOpen, setIsExportOpen] = useState(false);
   const [isDocsOpen, setIsDocsOpen] = useState(false);
+  const [isImportMongoDBOpen, setIsImportMongoDBOpen] = useState(false);
+  const [isRelationshipModalOpen, setIsRelationshipModalOpen] = useState(false);
+  const [isClearModalOpen, setIsClearModalOpen] = useState(false);
+  const [isCodeDrawerExpanded, setIsCodeDrawerExpanded] = useState(true);
 
   // Undo / Redo History
   const [history, setHistory] = useState<CollectionNode[][]>([INITIAL_COLLECTIONS]);
   const [historyIndex, setHistoryIndex] = useState(0);
+
+  const { fitView, setViewport } = useReactFlow();
+
+  const applyLayout = async (cols: CollectionNode[]) => {
+    const dagre = await import('dagre');
+    const g = new dagre.graphlib.Graph();
+    g.setGraph({ rankdir: 'LR', nodesep: 100, ranksep: 250 });
+    g.setDefaultEdgeLabel(() => ({}));
+
+    cols.forEach((col) => {
+      // Approximate height of CollectionNode: header (80px) + padding + fields (50px each)
+      const height = 100 + col.fields.length * 50;
+      g.setNode(col.id, { width: 320, height });
+    });
+
+    cols.forEach((col) => {
+      col.fields.forEach((field) => {
+        if (field.isForeignKey && field.foreignKeyRef) {
+          g.setEdge(field.foreignKeyRef.targetCollectionId, col.id);
+        }
+      });
+    });
+
+    dagre.layout(g);
+
+    return cols.map((col) => {
+      const nodeWithPosition = g.node(col.id);
+      const height = 100 + col.fields.length * 50;
+      return {
+        ...col,
+        position: {
+          x: nodeWithPosition.x - 160,
+          y: nodeWithPosition.y - height / 2,
+        },
+      };
+    });
+  };
 
   const pushHistory = (newCols: CollectionNode[]) => {
     const newHist = history.slice(0, historyIndex + 1);
@@ -153,19 +197,94 @@ export default function App() {
     setCollections(newCols);
   };
 
-  const handleUndo = () => {
+  const handleUndo = React.useCallback(() => {
     if (historyIndex > 0) {
       setHistoryIndex(historyIndex - 1);
       setCollections(history[historyIndex - 1]);
     }
-  };
+  }, [historyIndex, history]);
 
-  const handleRedo = () => {
+  const handleRedo = React.useCallback(() => {
     if (historyIndex < history.length - 1) {
       setHistoryIndex(historyIndex + 1);
       setCollections(history[historyIndex + 1]);
     }
-  };
+  }, [historyIndex, history]);
+
+  const clipboardRef = React.useRef<CollectionNode[]>([]);
+
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Avoid triggering when user is typing in inputs
+      if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') {
+        return;
+      }
+      
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const cmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      const key = e.key.toLowerCase();
+      
+      // Undo: Ctrl+Z or Cmd+Z
+      if (cmdOrCtrl && key === 'z' && !e.shiftKey) {
+        e.preventDefault();
+        handleUndo();
+      }
+      // Redo: Ctrl+Shift+Z or Cmd+Shift+Z
+      if (cmdOrCtrl && key === 'z' && e.shiftKey) {
+        e.preventDefault();
+        handleRedo();
+      }
+      // Redo: Ctrl+Y or Cmd+Y
+      if (cmdOrCtrl && key === 'y') {
+        e.preventDefault();
+        handleRedo();
+      }
+      
+      // Select All is handled by ReactFlow natively!
+      
+      // Ctrl+C
+      if (cmdOrCtrl && key === 'c') {
+        const selectedCols = collections.filter(c => c.id === selectedCollectionId);
+        if (selectedCols.length > 0) {
+          clipboardRef.current = selectedCols;
+        }
+      }
+
+      // Ctrl+V
+      if (cmdOrCtrl && key === 'v') {
+        if (clipboardRef.current.length > 0) {
+          const newCols = clipboardRef.current.map((col, idx) => ({
+            ...col,
+            id: `col_${Date.now()}_${idx}`,
+            name: `${col.name} Copy`,
+            position: { x: col.position.x + 50, y: col.position.y + 50 },
+            fields: col.fields.map(f => ({
+              ...f,
+              id: `f_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              // Remove FK relationships for duplicated fields to avoid bugs
+              isForeignKey: false,
+              foreignKeyRef: undefined
+            })),
+          }));
+          
+          setCollections(prev => {
+            const updated = [...prev, ...newCols];
+            // pushHistory logic manually to avoid dependency cycle
+            const newHist = history.slice(0, historyIndex + 1);
+            newHist.push(updated);
+            setHistory(newHist);
+            setHistoryIndex(newHist.length - 1);
+            return updated;
+          });
+          setSelectedCollectionId(newCols[0].id);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [handleUndo, handleRedo, collections, selectedCollectionId, history, historyIndex]);
 
   const handleSelectField = (colId: string, fieldId: string) => {
     setSelectedCollectionId(colId);
@@ -183,6 +302,57 @@ export default function App() {
   const handleUpdateCollectionPosition = (id: string, pos: { x: number; y: number }) => {
     const updated = collections.map((col) => (col.id === id ? { ...col, position: pos } : col));
     setCollections(updated);
+  };
+
+  const handleAddRelationship = (sourceColId: string, sourceFieldId: string, targetColId: string, targetFieldId: string) => {
+    const updated = collections.map((col) => {
+      if (col.id !== sourceColId) return col;
+      return {
+        ...col,
+        fields: col.fields.map((field) => 
+          field.id === sourceFieldId 
+            ? { ...field, isForeignKey: true, foreignKeyRef: { targetCollectionId: targetColId, targetFieldId: targetFieldId } } 
+            : field
+        ),
+      };
+    });
+    pushHistory(updated);
+  };
+
+  const handleRemoveRelationship = (sourceColId: string, sourceFieldId: string) => {
+    const updated = collections.map((col) => {
+      if (col.id !== sourceColId) return col;
+      return {
+        ...col,
+        fields: col.fields.map((field) => 
+          field.id === sourceFieldId 
+            ? { ...field, isForeignKey: false, foreignKeyRef: undefined } 
+            : field
+        ),
+      };
+    });
+    pushHistory(updated);
+  };
+
+  const handleAutoArrange = async () => {
+    const updated = await applyLayout(collections);
+    pushHistory(updated);
+    setTimeout(() => {
+      fitView({ duration: 800, padding: 0.2 });
+    }, 100);
+  };
+
+  const handleClearCanvas = () => {
+    setIsClearModalOpen(true);
+  };
+
+  const executeClearCanvas = () => {
+    pushHistory([]);
+    setSelectedCollectionId(null);
+    setSelectedFieldId(null);
+    setTimeout(() => {
+      setViewport({ x: 0, y: 0, zoom: 1 }, { duration: 800 });
+    }, 100);
   };
 
   const handleUpdateField = (colId: string, fieldId: string, updatedProps: Partial<SchemaField>) => {
@@ -236,36 +406,108 @@ export default function App() {
   };
 
   const handleDeleteCollection = (colId: string) => {
-    const updated = collections.filter((c) => c.id !== colId);
+    const updated = collections.filter((c) => c.id !== colId).map(col => ({
+      ...col,
+      fields: col.fields.map(f => {
+        if (f.isForeignKey && f.foreignKeyRef?.targetCollectionId === colId) {
+          return { ...f, isForeignKey: false, foreignKeyRef: undefined };
+        }
+        return f;
+      })
+    }));
     pushHistory(updated);
     if (selectedCollectionId === colId) {
       setSelectedCollectionId(updated[0]?.id || null);
       setSelectedFieldId(updated[0]?.fields[0]?.id || null);
     }
   };
+  
+  const handleRenameCollection = (colId: string, newName: string) => {
+    if (!newName.trim()) return;
+    const updated = collections.map(c => c.id === colId ? { ...c, name: newName.trim() } : c);
+    pushHistory(updated);
+  };
+
+  const handleDuplicateCollection = (colId: string) => {
+    const colToDuplicate = collections.find((c) => c.id === colId);
+    if (!colToDuplicate) return;
+
+    // generate a new ID
+    const newColId = `col_${Date.now()}`;
+    
+    // Create new collection
+    const duplicatedCol: CollectionNode = {
+      ...colToDuplicate,
+      id: newColId,
+      name: `${colToDuplicate.name} Copy`,
+      position: {
+        x: colToDuplicate.position.x + 350,
+        y: colToDuplicate.position.y,
+      },
+      fields: colToDuplicate.fields.map(f => ({
+        ...f,
+        id: `f_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      })),
+    };
+
+    const updated = [...collections, duplicatedCol];
+    pushHistory(updated);
+    setSelectedCollectionId(newColId);
+    setSelectedFieldId(duplicatedCol.fields[0]?.id || null);
+  };
+
+  const handleChangeColor = (colId: string, color: string) => {
+    const updated = collections.map(c => c.id === colId ? { ...c, colorTag: color } : c);
+    pushHistory(updated);
+  };
 
   const handleCreateCollection = (newCol: CollectionNode) => {
+    let maxY = -Infinity;
+    let avgX = 0;
+    if (collections.length > 0) {
+      collections.forEach(c => {
+         const height = 100 + c.fields.length * 50;
+         if (c.position.y + height > maxY) maxY = c.position.y + height;
+         avgX += c.position.x;
+      });
+      avgX /= collections.length;
+      newCol.position = { x: avgX, y: maxY + 50 };
+    } else {
+      newCol.position = { x: 0, y: 0 };
+    }
     const updated = [...collections, newCol];
     pushHistory(updated);
     setSelectedCollectionId(newCol.id);
     setSelectedFieldId(newCol.fields[0]?.id || null);
   };
 
-  const handleApplyAiSchema = (newCols: CollectionNode[]) => {
-    pushHistory(newCols);
+  const handleApplyAiSchema = async (newCols: CollectionNode[]) => {
+    const arranged = await applyLayout(newCols);
+    pushHistory(arranged);
     if (newCols.length > 0) {
       setSelectedCollectionId(newCols[0].id);
       setSelectedFieldId(newCols[0].fields[0]?.id || null);
     }
+    setTimeout(() => {
+      fitView({ duration: 800, padding: 0.2 });
+    }, 100);
   };
 
-  const handleResetCanvas = () => {
-    setZoom(1.0);
+  const handleImportMongoSchema = async (newCols: CollectionNode[]) => {
+    const combined = [...collections, ...newCols];
+    const arranged = await applyLayout(combined);
+    pushHistory(arranged);
+    if (newCols.length > 0) {
+      setSelectedCollectionId(newCols[0].id);
+      setSelectedFieldId(newCols[0].fields[0]?.id || null);
+    }
+    setTimeout(() => {
+      fitView({ duration: 800, padding: 0.2 });
+    }, 100);
   };
 
   return (
     <div className="w-screen h-screen bg-[#090B10] text-[#e0e3e5] font-sans overflow-hidden flex flex-col">
-      {/* Top Navigation Bar */}
       <Header
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
@@ -275,14 +517,11 @@ export default function App() {
         canRedo={historyIndex < history.length - 1}
         onOpenExport={() => setIsExportOpen(true)}
         onOpenAiGenerator={() => setIsAiModalOpen(true)}
-        zoom={zoom}
-        setZoom={setZoom}
-        onResetCanvas={handleResetCanvas}
+        onAutoArrange={handleAutoArrange}
+        onClearCanvas={handleClearCanvas}
       />
 
-      {/* Main Container */}
       <div className="flex-1 relative flex">
-        {/* Left Side Navigation */}
         <SideNav
           framework={framework}
           setFramework={setFramework}
@@ -291,13 +530,14 @@ export default function App() {
             setActiveTab(tab);
             if (tab === 'ai') setIsAiModalOpen(true);
             if (tab === 'docs') setIsDocsOpen(true);
+            if (tab === 'relationships') setIsRelationshipModalOpen(true);
           }}
           onNewSchema={() => setIsNewCollectionOpen(true)}
+          onImportMongoDB={() => setIsImportMongoDBOpen(true)}
           onOpenDocs={() => setIsDocsOpen(true)}
           collectionsCount={collections.length}
         />
 
-        {/* Central Visual Canvas */}
         <Canvas
           collections={collections}
           selectedCollectionId={selectedCollectionId}
@@ -307,11 +547,15 @@ export default function App() {
           onUpdateCollectionPosition={handleUpdateCollectionPosition}
           onAddField={handleAddField}
           onDeleteCollection={handleDeleteCollection}
-          zoom={zoom}
+          onRenameCollection={handleRenameCollection}
+          onDuplicateCollection={handleDuplicateCollection}
+          onChangeColor={handleChangeColor}
+          onAddRelationship={handleAddRelationship}
+          onRemoveRelationship={handleRemoveRelationship}
           searchQuery={searchQuery}
+          isCodeDrawerExpanded={isCodeDrawerExpanded}
         />
 
-        {/* Right Property / Field Inspector */}
         <FieldInspector
           collections={collections}
           selectedCollectionId={selectedCollectionId}
@@ -321,11 +565,16 @@ export default function App() {
           onClose={() => setSelectedFieldId(null)}
         />
 
-        {/* Bottom Code Generator Drawer */}
-        <CodeDrawer collections={collections} framework={framework} setFramework={setFramework} />
+        <CodeDrawer 
+          collections={collections} 
+          framework={framework} 
+          setFramework={setFramework}
+          isExpanded={isCodeDrawerExpanded}
+          setIsExpanded={setIsCodeDrawerExpanded}
+          hasSelection={!!(selectedCollectionId || selectedFieldId)}
+        />
       </div>
 
-      {/* Modals */}
       <AiGeneratorModal
         isOpen={isAiModalOpen}
         onClose={() => setIsAiModalOpen(false)}
@@ -346,7 +595,34 @@ export default function App() {
         framework={framework}
       />
 
+      <ImportMongoDBModal
+        isOpen={isImportMongoDBOpen}
+        onClose={() => setIsImportMongoDBOpen(false)}
+        onImport={handleImportMongoSchema}
+      />
+
+      <RelationshipModal
+        isOpen={isRelationshipModalOpen}
+        onClose={() => setIsRelationshipModalOpen(false)}
+        collections={collections}
+        onUpdateField={handleUpdateField}
+      />
+
       <DocsModal isOpen={isDocsOpen} onClose={() => setIsDocsOpen(false)} />
+
+      <ClearCanvasModal
+        isOpen={isClearModalOpen}
+        onClose={() => setIsClearModalOpen(false)}
+        onConfirm={executeClearCanvas}
+      />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <ReactFlowProvider>
+      <SchemaForgeApp />
+    </ReactFlowProvider>
   );
 }

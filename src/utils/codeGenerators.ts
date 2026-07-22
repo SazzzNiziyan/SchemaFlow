@@ -7,9 +7,9 @@ export function generateMongooseCode(collections: CollectionNode[]): string {
 
   collections.forEach((col) => {
     const schemaName = `${col.name.toLowerCase().replace(/s$/, '')}Schema`;
-    const modelName = col.name.charAt(0).toUpperCase() + col.name.slice(1);
+    const modelName = col.name.charAt(0).toUpperCase() + col.name.slice(1).replace(/s$/, ''); // singularize model name
 
-    code += `// ${col.name} Schema\n`;
+    code += `// ${modelName} Schema\n`;
     code += `export const ${schemaName} = new Schema({\n`;
 
     col.fields.forEach((field) => {
@@ -19,9 +19,14 @@ export function generateMongooseCode(collections: CollectionNode[]): string {
 
       if (field.isForeignKey && field.foreignKeyRef) {
         const targetCol = collections.find((c) => c.id === field.foreignKeyRef?.targetCollectionId);
-        const refName = targetCol ? targetCol.name.charAt(0).toUpperCase() + targetCol.name.slice(1) : 'Object';
-        code += `    type: Schema.Types.ObjectId,\n`;
-        code += `    ref: '${refName}',\n`;
+        const refName = targetCol ? targetCol.name.charAt(0).toUpperCase() + targetCol.name.slice(1).replace(/s$/, '') : 'Object';
+        
+        if (field.type === 'Array') {
+          code += `    type: [{ type: Schema.Types.ObjectId, ref: '${refName}' }],\n`;
+        } else {
+          code += `    type: Schema.Types.ObjectId,\n`;
+          code += `    ref: '${refName}',\n`;
+        }
       } else {
         switch (field.type) {
           case 'ObjectId':

@@ -11,7 +11,7 @@ export const DocsModal: React.FC<DocsModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-      <div className="w-full max-w-2xl bg-[#141414] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[550px]">
+      <div className="w-full max-w-2xl bg-[#000000] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[550px]">
         {/* Header */}
         <div className="p-5 border-b border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -83,7 +83,7 @@ export const DocsModal: React.FC<DocsModalProps> = ({ isOpen, onClose }) => {
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-neutral-800 bg-[#141414] flex justify-end">
+        <div className="p-4 border-t border-neutral-800 bg-[#000000] flex justify-end">
           <button
             onClick={onClose}
             className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs rounded-full transition-colors cursor-pointer shadow-[0_0_15px_rgba(99,102,241,0.3)]"

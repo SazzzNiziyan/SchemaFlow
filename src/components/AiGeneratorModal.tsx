@@ -88,7 +88,7 @@ export const AiGeneratorModal: React.FC<AiGeneratorModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-      <div className="w-full max-w-2xl bg-[#141414] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-2xl bg-[#000000] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col">
         {/* Modal Header */}
         <div className="p-6 border-b border-neutral-800 flex items-center justify-between bg-indigo-950/20">
           <div className="flex items-center gap-3">

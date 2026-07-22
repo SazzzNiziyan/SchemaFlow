@@ -64,7 +64,7 @@ export const FieldInspector: React.FC<FieldInspectorProps> = ({
             onChange={(e) =>
               onUpdateField(selectedCollectionId, selectedFieldId, { name: e.target.value })
             }
-            className="w-full bg-[#141414] border border-neutral-800 rounded-xl px-3 py-2 text-sm text-indigo-300 font-mono font-semibold focus:outline-none focus:border-indigo-500 transition-all"
+            className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-sm text-indigo-300 font-mono font-semibold focus:outline-none focus:border-indigo-500 transition-all"
           />
           <p className="text-xs text-neutral-500 font-mono mt-1.5">
             Belongs to: <span className="text-neutral-200 font-semibold">{currentCollection.name} Collection</span>
@@ -84,7 +84,7 @@ export const FieldInspector: React.FC<FieldInspectorProps> = ({
                   type: e.target.value as FieldType,
                 })
               }
-              className="w-full bg-[#141414] border border-neutral-800 rounded-xl p-2.5 text-sm text-white font-mono appearance-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none cursor-pointer"
+              className="w-full bg-[#000000] border border-neutral-800 rounded-xl p-2.5 text-sm text-white font-mono appearance-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none cursor-pointer"
             >
               {dataTypes.map((t) => (
                 <option key={t} value={t}>
@@ -117,12 +117,12 @@ export const FieldInspector: React.FC<FieldInspectorProps> = ({
                     : undefined,
                 });
               }}
-              className="w-4 h-4 rounded bg-[#141414] border-neutral-700 text-indigo-600 focus:ring-indigo-500"
+              className="w-4 h-4 rounded bg-[#000000] border-neutral-700 text-indigo-600 focus:ring-indigo-500"
             />
           </div>
 
           {currentField.isForeignKey && (
-            <div className="space-y-2 bg-[#141414] p-3.5 rounded-2xl border border-neutral-800">
+            <div className="space-y-2 bg-[#000000] p-3.5 rounded-2xl border border-neutral-800">
               <label className="text-xs text-neutral-400 block font-medium">Target Collection</label>
               <select
                 value={currentField.foreignKeyRef?.targetCollectionId || ''}
@@ -234,7 +234,7 @@ export const FieldInspector: React.FC<FieldInspectorProps> = ({
                 })
               }
               placeholder="/^\S+@\S+\.\S+$/"
-              className="w-full bg-[#141414] border border-neutral-800 rounded-xl px-3 py-2 text-sm font-mono text-white focus:border-indigo-500 focus:outline-none transition-colors"
+              className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-sm font-mono text-white focus:border-indigo-500 focus:outline-none transition-colors"
             />
           </div>
 
@@ -253,7 +253,7 @@ export const FieldInspector: React.FC<FieldInspectorProps> = ({
                 })
               }
               placeholder="e.g. 'user@example.com' or Date.now"
-              className="w-full bg-[#141414] border border-neutral-800 rounded-xl p-2.5 text-sm text-white font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none placeholder:text-neutral-600"
+              className="w-full bg-[#000000] border border-neutral-800 rounded-xl p-2.5 text-sm text-white font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none placeholder:text-neutral-600"
             />
           </div>
         </div>

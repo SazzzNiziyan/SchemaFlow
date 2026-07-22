@@ -1,5 +1,6 @@
 import React from 'react';
 import { Undo, Redo, Search, Bell, Download, ZoomIn, ZoomOut, Maximize2, Sparkles } from 'lucide-react';
+import { useReactFlow, useStore } from '@xyflow/react';
 
 interface HeaderProps {
   searchQuery: string;
@@ -10,9 +11,8 @@ interface HeaderProps {
   canRedo: boolean;
   onOpenExport: () => void;
   onOpenAiGenerator: () => void;
-  zoom: number;
-  setZoom: React.Dispatch<React.SetStateAction<number>>;
-  onResetCanvas: () => void;
+  onAutoArrange: () => void;
+  onClearCanvas: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,10 +24,12 @@ export const Header: React.FC<HeaderProps> = ({
   canRedo,
   onOpenExport,
   onOpenAiGenerator,
-  zoom,
-  setZoom,
-  onResetCanvas,
+  onAutoArrange,
+  onClearCanvas,
 }) => {
+  const { zoomIn, zoomOut, fitView } = useReactFlow();
+  const zoom = useStore((s) => s.transform[2]);
+
   return (
     <header className="flex justify-between items-center px-6 h-16 w-full fixed top-0 z-50 bg-[#0a0a0a]/90 backdrop-blur-xl border-b border-neutral-800 shadow-sm">
       {/* Brand Logo */}
@@ -36,7 +38,7 @@ export const Header: React.FC<HeaderProps> = ({
           SF
         </div>
         <span className="font-bold text-xl tracking-tight text-white">
-          SCHEMA<span className="text-indigo-400">FLOW</span>
+          SCHEMA<span className="text-indigo-400">Flow</span>
         </span>
       </div>
 
@@ -49,17 +51,34 @@ export const Header: React.FC<HeaderProps> = ({
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search collections or fields..."
-            className="w-full bg-[#141414] border border-neutral-800 rounded-full py-1.5 pl-10 pr-4 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
+            className="w-full bg-[#000000] border border-neutral-800 rounded-full py-1.5 pl-10 pr-4 text-xs text-white placeholder:text-neutral-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all"
           />
         </div>
       </div>
 
       {/* Top Right Action Tools */}
       <div className="flex items-center gap-2">
+        {/* Canvas Tools */}
+        <button
+          onClick={onAutoArrange}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono text-neutral-300 hover:text-white hover:bg-neutral-800 rounded-full transition-colors cursor-pointer border border-neutral-800"
+          title="Auto Arrange schema (Dagre Layout)"
+        >
+          <span>✨ Auto Arrange</span>
+        </button>
+
+        <button
+          onClick={onClearCanvas}
+          className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-mono text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded-full transition-colors cursor-pointer border border-neutral-800 mr-2"
+          title="Clear all collections"
+        >
+          <span>🗑 Clear</span>
+        </button>
+
         {/* Zoom Controls */}
-        <div className="flex items-center gap-1 bg-[#141414] border border-neutral-800 rounded-full px-2 py-1 mr-2 text-xs text-neutral-300">
+        <div className="flex items-center gap-1 bg-[#000000] border border-neutral-800 rounded-full px-2 py-1 mr-2 text-xs text-neutral-300">
           <button
-            onClick={() => setZoom((z) => Math.max(0.4, z - 0.1))}
+            onClick={() => zoomOut({ duration: 300 })}
             className="p-1 hover:text-white transition-colors rounded-full"
             title="Zoom Out"
           >
@@ -67,16 +86,16 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
           <span className="font-mono text-[11px] w-10 text-center">{Math.round(zoom * 100)}%</span>
           <button
-            onClick={() => setZoom((z) => Math.min(2.0, z + 0.1))}
+            onClick={() => zoomIn({ duration: 300 })}
             className="p-1 hover:text-white transition-colors rounded-full"
             title="Zoom In"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
           <button
-            onClick={onResetCanvas}
+            onClick={() => fitView({ duration: 800, padding: 0.2 })}
             className="p-1 hover:text-white transition-colors rounded-full ml-0.5 border-l border-neutral-800 pl-1.5"
-            title="Reset Canvas View"
+            title="Fit View"
           >
             <Maximize2 className="w-3.5 h-3.5" />
           </button>

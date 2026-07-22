@@ -7,10 +7,12 @@ interface CodeDrawerProps {
   collections: CollectionNode[];
   framework: TargetFramework;
   setFramework: (framework: TargetFramework) => void;
+  isExpanded: boolean;
+  setIsExpanded: (val: boolean) => void;
+  hasSelection: boolean;
 }
 
-export const CodeDrawer: React.FC<CodeDrawerProps> = ({ collections, framework, setFramework }) => {
-  const [isExpanded, setIsExpanded] = useState(true);
+export const CodeDrawer: React.FC<CodeDrawerProps> = ({ collections, framework, setFramework, isExpanded, setIsExpanded, hasSelection }) => {
   const [copied, setCopied] = useState(false);
 
   const codeOutput = generateCode(collections, framework);
@@ -55,12 +57,12 @@ export const CodeDrawer: React.FC<CodeDrawerProps> = ({ collections, framework, 
 
   return (
     <div
-      className={`fixed bottom-0 left-70 right-[320px] bg-[#0a0a0a] border-t border-neutral-800 z-20 transition-all duration-300 flex flex-col shadow-[0_-10px_30px_rgba(0,0,0,0.6)] ${
-        isExpanded ? 'h-52' : 'h-10'
-      }`}
+      className={`fixed bottom-0 left-[280px] transition-all duration-300 bg-[#0a0a0a] border-t border-neutral-800 z-20 flex flex-col shadow-[0_-10px_30px_rgba(0,0,0,0.6)] ${
+        hasSelection ? 'right-[320px]' : 'right-0'
+      } ${isExpanded ? 'h-52' : 'h-10'}`}
     >
       {/* Drawer Handle / Header */}
-      <div className="h-10 px-4 flex items-center justify-between border-b border-neutral-800 bg-[#141414]/90 backdrop-blur-md">
+      <div className="h-10 px-4 flex items-center justify-between border-b border-neutral-800 bg-[#000000]/90 backdrop-blur-md">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setIsExpanded(!isExpanded)}

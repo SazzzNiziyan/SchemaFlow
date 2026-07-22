@@ -63,7 +63,7 @@ export const NewCollectionModal: React.FC<NewCollectionModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-      <div className="w-full max-w-md bg-[#141414] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col">
+      <div className="w-full max-w-md bg-[#000000] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col">
         {/* Header */}
         <div className="p-5 border-b border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">

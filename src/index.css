@@ -11,7 +11,7 @@
   }
 
   .bento-card {
-    background-color: #141414;
+    background-color: #000000;
     border: 1px solid #262626;
     border-radius: 1.5rem;
   }
@@ -24,6 +24,31 @@
     stroke-dasharray: 8 6;
     animation: dash 25s linear infinite;
   }
+}
+
+/* React Flow Overrides to remove default wrappers */
+.react-flow__node {
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
+}
+
+.react-flow__node.selected {
+  outline: none !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+.react-flow__handle {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.react-flow__node:hover .react-flow__handle,
+.react-flow__node.selected .react-flow__handle {
+  opacity: 1;
 }
 
 @keyframes dash {
@@ -48,3 +73,10 @@
   background: #404040;
 }
 
+
+.react-flow__node {
+  transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.react-flow__node.dragging {
+  transition: none;
+}

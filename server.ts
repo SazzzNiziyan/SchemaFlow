@@ -3,6 +3,7 @@ import path from 'path';
 import dotenv from 'dotenv';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
+import { MongoClient, ObjectId } from 'mongodb';
 
 dotenv.config();
 
@@ -15,6 +16,168 @@ async function startServer() {
   // API Routes
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', name: 'SchemaForge Engine' });
+  });
+
+  // MongoDB Connect & Get Databases
+  app.post('/api/mongodb/databases', async (req, res) => {
+    try {
+      const { uri } = req.body;
+      if (!uri) return res.status(400).json({ error: 'MongoDB URI is required' });
+      
+      const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
+      await client.connect();
+      const adminDb = client.db('admin');
+      const dbs = await adminDb.admin().listDatabases();
+      await client.close();
+      
+      res.json({ success: true, databases: dbs.databases.map(d => d.name) });
+    } catch (err: any) {
+      console.error('Error connecting to MongoDB:', err);
+      res.status(500).json({ error: err.message || 'Failed to connect to MongoDB' });
+    }
+  });
+
+  // MongoDB Get Collections
+  app.post('/api/mongodb/collections', async (req, res) => {
+    try {
+      const { uri, dbName } = req.body;
+      if (!uri || !dbName) return res.status(400).json({ error: 'URI and Database Name are required' });
+      
+      const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
+      await client.connect();
+      const db = client.db(dbName);
+      const collections = await db.listCollections().toArray();
+      await client.close();
+      
+      res.json({ success: true, collections: collections.map(c => c.name) });
+    } catch (err: any) {
+      console.error('Error fetching collections:', err);
+      res.status(500).json({ error: err.message || 'Failed to fetch collections' });
+    }
+  });
+
+  // MongoDB Import Schema
+  app.post('/api/mongodb/import', async (req, res) => {
+    try {
+      const { uri, dbName, collectionNames } = req.body;
+      if (!uri || !dbName || !collectionNames || !Array.isArray(collectionNames)) {
+        return res.status(400).json({ error: 'Invalid request payload' });
+      }
+
+      const client = new MongoClient(uri, { serverSelectionTimeoutMS: 5000 });
+      await client.connect();
+      const db = client.db(dbName);
+
+      const generatedCollections = [];
+      let xOffset = 50;
+      let yOffset = 100;
+
+      for (const colName of collectionNames) {
+        const collection = db.collection(colName);
+        const sampleDocs = await collection.find().limit(50).toArray();
+        
+        const fieldsMap = new Map<string, any>();
+        
+        // Infer fields from sample documents
+        sampleDocs.forEach(doc => {
+          Object.keys(doc).forEach(key => {
+            if (!fieldsMap.has(key)) {
+              const val = doc[key];
+              let type = 'String';
+              let isForeignKey = false;
+              let targetCollectionId = undefined;
+              let targetFieldId = undefined;
+
+              if (val instanceof ObjectId) {
+                type = 'ObjectId';
+                // Very naive relationship detection
+                if (key !== '_id' && (key.toLowerCase().endsWith('id') || key.toLowerCase().endsWith('_id'))) {
+                  isForeignKey = true;
+                  // Try to guess target collection
+                  let baseName = key.replace(/id$/i, '').replace(/_$/, '');
+                  // We'll leave target empty and let user link or try to map if collections match
+                }
+              } else if (typeof val === 'number') {
+                type = 'Number';
+              } else if (typeof val === 'boolean') {
+                type = 'Boolean';
+              } else if (val instanceof Date) {
+                type = 'Date';
+              } else if (Array.isArray(val)) {
+                type = 'Array';
+              } else if (typeof val === 'object' && val !== null) {
+                type = 'JSON';
+              }
+
+              fieldsMap.set(key, {
+                id: `f_${colName}_${key}`,
+                name: key,
+                type,
+                isPrimaryKey: key === '_id',
+                isForeignKey,
+                validation: { required: false }
+              });
+            }
+          });
+        });
+
+        // Add _id if it was completely empty collection
+        if (sampleDocs.length === 0) {
+          fieldsMap.set('_id', {
+            id: `f_${colName}__id`,
+            name: '_id',
+            type: 'ObjectId',
+            isPrimaryKey: true,
+            isForeignKey: false,
+            validation: { required: true }
+          });
+        }
+
+        generatedCollections.push({
+          id: `col_${colName}`,
+          name: colName,
+          icon: 'Database', // Default icon
+          colorTag: '#afc6ff',
+          position: { x: xOffset, y: yOffset },
+          fields: Array.from(fieldsMap.values())
+        });
+
+        xOffset += 400;
+        if (xOffset > 1200) {
+          xOffset = 50;
+          yOffset += 350;
+        }
+      }
+
+      await client.close();
+
+      // Post-process to link foreign keys if target collection exists
+      generatedCollections.forEach(col => {
+        col.fields.forEach(field => {
+          if (field.isForeignKey) {
+            let possibleTarget = field.name.replace(/id$/i, '').replace(/_$/, '').toLowerCase();
+            if (possibleTarget === 'user') possibleTarget = 'users'; // common pluralization
+            else if (!possibleTarget.endsWith('s')) possibleTarget += 's';
+
+            const targetCol = generatedCollections.find(c => c.name.toLowerCase() === possibleTarget);
+            if (targetCol) {
+              const targetPk = targetCol.fields.find(f => f.isPrimaryKey);
+              if (targetPk) {
+                field.foreignKeyRef = {
+                  targetCollectionId: targetCol.id,
+                  targetFieldId: targetPk.id
+                };
+              }
+            }
+          }
+        });
+      });
+
+      res.json({ success: true, collections: generatedCollections });
+    } catch (err: any) {
+      console.error('Error importing collections:', err);
+      res.status(500).json({ error: err.message || 'Failed to import collections' });
+    }
   });
 
   // AI Schema Generator route using server-side Gemini API

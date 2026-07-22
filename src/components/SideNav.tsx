@@ -1,5 +1,5 @@
 import React from 'react';
-import { Table, Network, Sparkles, Plus, Settings, BookOpen, Layers } from 'lucide-react';
+import { Table, Network, Sparkles, Plus, Settings, BookOpen, Layers, Database } from 'lucide-react';
 import { TargetFramework } from '../types';
 
 interface SideNavProps {
@@ -8,6 +8,7 @@ interface SideNavProps {
   activeTab: 'collections' | 'relationships' | 'ai' | 'docs';
   setActiveTab: (tab: 'collections' | 'relationships' | 'ai' | 'docs') => void;
   onNewSchema: () => void;
+  onImportMongoDB: () => void;
   onOpenDocs: () => void;
   collectionsCount: number;
 }
@@ -18,6 +19,7 @@ export const SideNav: React.FC<SideNavProps> = ({
   activeTab,
   setActiveTab,
   onNewSchema,
+  onImportMongoDB,
   onOpenDocs,
   collectionsCount,
 }) => {
@@ -25,7 +27,7 @@ export const SideNav: React.FC<SideNavProps> = ({
     <nav className="fixed left-0 top-16 h-[calc(100vh-64px)] w-[280px] flex flex-col z-40 bg-[#0a0a0a] border-r border-neutral-800 shadow-xl">
       {/* Workspace Header */}
       <div className="p-6 flex flex-col items-center border-b border-neutral-800">
-        <div className="w-16 h-16 rounded-2xl bg-[#141414] flex items-center justify-center mb-3 p-2 shadow-md border border-neutral-800 relative">
+        <div className="w-16 h-16 rounded-2xl bg-[#000000] flex items-center justify-center mb-3 p-2 shadow-md border border-neutral-800 relative">
           <Layers className="w-8 h-8 text-indigo-400" />
         </div>
         <h2 className="font-bold text-lg text-white tracking-tight">Project Alpha</h2>
@@ -35,7 +37,7 @@ export const SideNav: React.FC<SideNavProps> = ({
           <select
             value={framework}
             onChange={(e) => setFramework(e.target.value as TargetFramework)}
-            className="w-full bg-[#141414] text-xs font-mono text-indigo-300 border border-neutral-800 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
+            className="w-full bg-[#000000] text-xs font-mono text-indigo-300 border border-neutral-800 rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-500 cursor-pointer"
           >
             <option value="mongoose">Mongoose v7.0 (MongoDB)</option>
             <option value="prisma">Prisma ORM (PostgreSQL)</option>
@@ -54,6 +56,14 @@ export const SideNav: React.FC<SideNavProps> = ({
           <Plus className="w-4 h-4" />
           <span>New Collection</span>
         </button>
+
+        <button
+          onClick={onImportMongoDB}
+          className="mt-3 w-full py-2.5 px-4 bg-[#000000] hover:bg-neutral-800 border border-neutral-800 text-neutral-300 hover:text-white font-bold text-xs tracking-wider uppercase rounded-full transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95"
+        >
+          <Database className="w-4 h-4 text-emerald-400" />
+          <span>Import MongoDB</span>
+        </button>
       </div>
 
       {/* Main Navigation */}
@@ -65,7 +75,7 @@ export const SideNav: React.FC<SideNavProps> = ({
               className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl font-semibold text-xs tracking-wider uppercase transition-all ${
                 activeTab === 'collections'
                   ? 'text-white bg-indigo-600/20 border border-indigo-500/40'
-                  : 'text-neutral-400 hover:text-white hover:bg-[#141414]'
+                  : 'text-neutral-400 hover:text-white hover:bg-[#000000]'
               }`}
             >
               <div className="flex items-center gap-3">
@@ -84,7 +94,7 @@ export const SideNav: React.FC<SideNavProps> = ({
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-xs tracking-wider uppercase transition-all ${
                 activeTab === 'relationships'
                   ? 'text-white bg-indigo-600/20 border border-indigo-500/40'
-                  : 'text-neutral-400 hover:text-white hover:bg-[#141414]'
+                  : 'text-neutral-400 hover:text-white hover:bg-[#000000]'
               }`}
             >
               <Network className="w-4 h-4 text-emerald-400" />
@@ -98,7 +108,7 @@ export const SideNav: React.FC<SideNavProps> = ({
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-xs tracking-wider uppercase transition-all ${
                 activeTab === 'ai'
                   ? 'text-white bg-indigo-600/20 border border-indigo-500/40'
-                  : 'text-neutral-400 hover:text-white hover:bg-[#141414]'
+                  : 'text-neutral-400 hover:text-white hover:bg-[#000000]'
               }`}
             >
               <Sparkles className="w-4 h-4 text-indigo-300" />
@@ -114,7 +124,7 @@ export const SideNav: React.FC<SideNavProps> = ({
           <li>
             <button
               onClick={onOpenDocs}
-              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-neutral-400 hover:text-white hover:bg-[#141414] transition-colors font-medium text-xs tracking-wider uppercase"
+              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-neutral-400 hover:text-white hover:bg-[#000000] transition-colors font-medium text-xs tracking-wider uppercase"
             >
               <BookOpen className="w-4 h-4 text-neutral-400" />
               <span>Docs & Cheat Sheet</span>
@@ -123,7 +133,7 @@ export const SideNav: React.FC<SideNavProps> = ({
           <li>
             <button
               onClick={onOpenDocs}
-              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-neutral-400 hover:text-white hover:bg-[#141414] transition-colors font-medium text-xs tracking-wider uppercase"
+              className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl text-neutral-400 hover:text-white hover:bg-[#000000] transition-colors font-medium text-xs tracking-wider uppercase"
             >
               <Settings className="w-4 h-4 text-neutral-400" />
               <span>Settings</span>

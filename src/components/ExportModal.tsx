@@ -47,7 +47,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-      <div className="w-full max-w-3xl bg-[#141414] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[600px]">
+      <div className="w-full max-w-3xl bg-[#000000] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[600px]">
         {/* Header */}
         <div className="p-5 border-b border-neutral-800 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -95,7 +95,7 @@ export const ExportModal: React.FC<ExportModalProps> = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-neutral-800 bg-[#141414] flex items-center justify-between">
+        <div className="p-4 border-t border-neutral-800 bg-[#000000] flex items-center justify-between">
           <span className="text-xs text-neutral-400 font-mono">
             {collections.length} Collections / Tables defined
           </span>
