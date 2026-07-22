@@ -36,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
           SF
         </div>
         <span className="font-bold text-xl tracking-tight text-white">
-          SCHEMA<span className="text-indigo-400">FORGE</span>
+          SCHEMA<span className="text-indigo-400">FLOW</span>
         </span>
       </div>
 
