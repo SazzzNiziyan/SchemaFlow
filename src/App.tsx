@@ -536,6 +536,7 @@ function SchemaForgeApp() {
           onImportMongoDB={() => setIsImportMongoDBOpen(true)}
           onOpenDocs={() => setIsDocsOpen(true)}
           collectionsCount={collections.length}
+          relationshipsCount={collections.reduce((acc, col) => acc + col.fields.filter(f => f.isForeignKey).length, 0)}
         />
 
         <Canvas

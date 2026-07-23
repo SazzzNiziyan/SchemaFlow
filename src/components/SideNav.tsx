@@ -11,6 +11,7 @@ interface SideNavProps {
   onImportMongoDB: () => void;
   onOpenDocs: () => void;
   collectionsCount: number;
+  relationshipsCount: number;
 }
 
 export const SideNav: React.FC<SideNavProps> = ({
@@ -22,6 +23,7 @@ export const SideNav: React.FC<SideNavProps> = ({
   onImportMongoDB,
   onOpenDocs,
   collectionsCount,
+  relationshipsCount,
 }) => {
   return (
     <nav className="fixed left-0 top-16 h-[calc(100vh-64px)] w-[280px] flex flex-col z-40 bg-[#0a0a0a] border-r border-neutral-800 shadow-xl">
@@ -91,14 +93,19 @@ export const SideNav: React.FC<SideNavProps> = ({
           <li>
             <button
               onClick={() => setActiveTab('relationships')}
-              className={`w-full flex items-center gap-3 px-4 py-3 rounded-2xl font-semibold text-xs tracking-wider uppercase transition-all ${
+              className={`w-full flex items-center justify-between px-4 py-3 rounded-2xl font-semibold text-xs tracking-wider uppercase transition-all ${
                 activeTab === 'relationships'
                   ? 'text-white bg-indigo-600/20 border border-indigo-500/40'
                   : 'text-neutral-400 hover:text-white hover:bg-[#000000]'
               }`}
             >
-              <Network className="w-4 h-4 text-emerald-400" />
-              <span>Relationships</span>
+              <div className="flex items-center gap-3">
+                <Network className="w-4 h-4 text-emerald-400" />
+                <span>Relationships</span>
+              </div>
+              <span className="bg-neutral-800 text-emerald-300 font-mono text-[10px] px-2 py-0.5 rounded-full font-bold">
+                {relationshipsCount}
+              </span>
             </button>
           </li>
 
