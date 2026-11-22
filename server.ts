@@ -22,6 +22,42 @@ function sanitizeErrorMessage(err: unknown): string {
   return raw.replace(/(mongodb(?:\+srv)?:\/\/[^:]+:)[^@]+(@)/gi, '$1***$2');
 }
 
+/** Total time budget for one AI schema generation, including retries. */
+const AI_REQUEST_TIMEOUT_MS = 120_000;
+
+/** Gemini errors worth retrying: overload / rate limit / transient upstream failures. */
+function isTransientAiError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  const status = (err as { status?: number })?.status;
+  return (
+    status === 429 || status === 500 || status === 503 || status === 504 ||
+    /\b(429|500|503|504)\b|UNAVAILABLE|RESOURCE_EXHAUSTED|high demand|overloaded|fetch failed|ECONNRESET|ETIMEDOUT/i.test(msg)
+  );
+}
+
+/** Turns raw Gemini error JSON into a short message the UI can show as-is. */
+function friendlyAiError(err: unknown): { status: number; message: string } {
+  const msg = err instanceof Error ? err.message : String(err);
+  if ((err as Error)?.name === 'AbortError' || /aborted/i.test(msg)) {
+    return { status: 504, message: 'The AI model took too long to respond. Please try again in a moment.' };
+  }
+  if (/RESOURCE_EXHAUSTED|\b429\b|quota/i.test(msg)) {
+    return { status: 429, message: 'Gemini rate limit or quota reached. Wait a minute and try again.' };
+  }
+  if (isTransientAiError(err)) {
+    return { status: 503, message: 'Gemini is overloaded right now (Google-side). Please try again in a minute.' };
+  }
+  if (/NOT_FOUND|\b404\b/.test(msg)) {
+    return { status: 502, message: 'The configured Gemini model is unavailable. Set GEMINI_MODEL in .env to a current model.' };
+  }
+  if (/API key|PERMISSION_DENIED|\b40[13]\b/i.test(msg)) {
+    return { status: 502, message: 'Gemini rejected the API key. Check GEMINI_API_KEY in .env.' };
+  }
+  return { status: 500, message: sanitizeErrorMessage(err) };
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /** In-memory IP rate limiter to protect Gemini AI and MongoDB connection endpoints. */
 interface RateLimitRecord {
   count: number;
@@ -126,11 +162,18 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
   // 2. Request timeout guardrail: abort stalled requests under low CPU (0.1 CPU) load
+  // AI generation legitimately takes 10–60s (longer when Gemini is busy), so it gets
+  // its own budget; everything else keeps the tight 15s cap.
   const REQUEST_TIMEOUT_MS = 15_000;
-  app.use((_req, res, next) => {
-    res.setTimeout(REQUEST_TIMEOUT_MS, () => {
+  app.use((req, res, next) => {
+    const isAi = req.path === '/api/generate-schema';
+    res.setTimeout(isAi ? AI_REQUEST_TIMEOUT_MS + 5_000 : REQUEST_TIMEOUT_MS, () => {
       if (!res.headersSent) {
-        res.status(504).json({ error: 'Request timed out under high server load.' });
+        res.status(504).json({
+          error: isAi
+            ? 'The AI model took too long to respond. Please try again in a moment.'
+            : 'Request timed out under high server load.',
+        });
       }
     });
     next();
@@ -372,8 +415,15 @@ async function startServer() {
           },
         });
 
-        const response = await ai.models.generateContent({
-          model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
+        // Cancel the upstream call at the deadline or when the browser disconnects.
+        const controller = new AbortController();
+        const deadline = Date.now() + AI_REQUEST_TIMEOUT_MS;
+        const abortTimer = setTimeout(() => controller.abort(), AI_REQUEST_TIMEOUT_MS);
+        res.on('close', () => controller.abort());
+
+        // Each attempt also has its own cap, so one hung call can't eat the whole budget.
+        const generate = (model: string, signal: AbortSignal) => ai.models.generateContent({
+          model,
           contents: `You are a principal MongoDB database architect.
 Generate a comprehensive, production-ready schema based on this specification: "${prompt}".
 Target Framework: ${framework}.
@@ -385,6 +435,7 @@ Rules:
 4. Color tags should be crisp modern hex codes (e.g. #6366F1, #10B981, #F59E0B, #EC4899, #3B82F6, #8B5CF6).
 5. Output clean JSON matching the schema.`,
           config: {
+            abortSignal: signal,
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
@@ -446,12 +497,48 @@ Rules:
           },
         });
 
+        // Retry transient overload errors / hung calls with backoff. With
+        // GEMINI_FALLBACK_MODEL set, switch to it after two primary failures.
+        const primary = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
+        const fallback = (process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-3.6-flash').trim();
+        const plan =
+          fallback && fallback !== primary ? [primary, primary, fallback, fallback] : [primary, primary, primary];
+        const ATTEMPT_TIMEOUT_MS = 50_000;
+        let response: Awaited<ReturnType<typeof generate>> | undefined;
+        let lastErr: unknown;
+        try {
+          for (let attempt = 0; attempt < plan.length; attempt++) {
+            const remaining = deadline - Date.now();
+            const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(Math.min(ATTEMPT_TIMEOUT_MS, remaining))]);
+            try {
+              response = await generate(plan[attempt], signal);
+              break;
+            } catch (err) {
+              lastErr = err;
+              const backoff = 1_500 * 2 ** Math.min(attempt, 2) + Math.random() * 500;
+              // A per-attempt timeout is retryable; the overall deadline / client disconnect is not.
+              const attemptTimedOut = signal.aborted && !controller.signal.aborted;
+              const canRetry =
+                (attemptTimedOut || isTransientAiError(err)) &&
+                !controller.signal.aborted &&
+                Date.now() + backoff < deadline - 10_000;
+              if (!canRetry || attempt === plan.length - 1) throw err;
+              console.warn(`Gemini attempt ${attempt + 1} (${plan[attempt]}) failed transiently; retrying in ${Math.round(backoff)}ms`);
+              await sleep(backoff);
+            }
+          }
+        } finally {
+          clearTimeout(abortTimer);
+        }
+        if (!response) throw lastErr;
+
         const jsonText = response.text || '{}';
         const parsedData = JSON.parse(jsonText);
-        res.json({ success: true, data: parsedData });
+        if (!res.headersSent) res.json({ success: true, data: parsedData });
       } catch (err: unknown) {
         console.error('Error generating schema:', sanitizeErrorMessage(err));
-        res.status(500).json({ error: sanitizeErrorMessage(err) });
+        const { status, message } = friendlyAiError(err);
+        if (!res.headersSent) res.status(status).json({ error: message });
       }
     },
   );
