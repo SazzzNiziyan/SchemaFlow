@@ -1,12 +1,8 @@
-import React, { useMemo, useState, useCallback, useEffect } from 'react';
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import {
   ReactFlow,
   MiniMap,
-  Controls,
   Background,
-  useNodesState,
-  useEdgesState,
-  addEdge,
   Connection,
   Edge,
   Node,
@@ -14,225 +10,220 @@ import {
   NodeChange,
   EdgeChange,
   applyNodeChanges,
-  applyEdgeChanges
+  applyEdgeChanges,
+  useReactFlow,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
-import { CollectionNode as CollectionNodeType } from '../types';
-import { CollectionNode } from './CollectionNode';
-import { CustomEdge } from './CustomEdge';
+import type { CollectionNode as CollectionModel, XYPosition } from '../types';
+import { CollectionNode, type CollectionNodeData } from './CollectionNode';
+import { CustomEdge, type CustomEdgeData } from './CustomEdge';
+import { useSchemaStore } from '../store/useSchemaStore';
+import { useUIStore } from '../store/useUIStore';
+import { useInspectorVisible } from './FieldInspector';
+import { deriveRelationships } from '../utils/schemaOps';
+import { hudFitPadding, LAYOUT_TWEEN_MS } from '../hooks/useCanvasCommands';
 
-interface CanvasProps {
-  collections: CollectionNodeType[];
-  selectedCollectionId: string | null;
-  selectedFieldId: string | null;
-  onSelectField: (colId: string, fieldId: string) => void;
-  onSelectCollection: (colId: string) => void;
-  onUpdateCollectionPosition: (id: string, pos: { x: number; y: number }) => void;
-  onAddField: (colId: string) => void;
-  onDeleteCollection: (colId: string) => void;
-  onRenameCollection: (colId: string, newName: string) => void;
-  onDuplicateCollection: (colId: string) => void;
-  onChangeColor: (colId: string, color: string) => void;
-  onAddRelationship: (sourceColId: string, sourceFieldId: string, targetColId: string, targetFieldId: string) => void;
-  onRemoveRelationship: (sourceColId: string, sourceFieldId: string) => void;
-  searchQuery: string;
-  isCodeDrawerExpanded: boolean;
+type CollectionFlowNode = Node<CollectionNodeData, 'collectionNode'>;
+type RelationshipFlowEdge = Edge<CustomEdgeData, 'customEdge'>;
+
+const nodeTypes = { collectionNode: CollectionNode };
+const edgeTypes = { customEdge: CustomEdge };
+
+// Edge/connection colors come from theme tokens (see .sf-edge-path in index.css).
+const CONNECTION_LINE_STYLE = { stroke: 'var(--accent-primary)', strokeWidth: 1.5, strokeDasharray: '5 4' };
+const easeOutCubic = (t: number) => 1 - Math.pow(1 - t, 3);
+
+function makeNode(col: CollectionModel, position: XYPosition, existing?: CollectionFlowNode): CollectionFlowNode {
+  if (existing) return existing.position === position ? existing : { ...existing, position };
+  return {
+    id: col.id,
+    type: 'collectionNode',
+    position,
+    data: { collectionId: col.id },
+    dragHandle: '.drag-handle',
+    selected: useSchemaStore.getState().selectedCollectionId === col.id,
+  };
 }
 
-const nodeTypes = {
-  collectionNode: CollectionNode,
-};
+export const Canvas: React.FC = () => {
+  const collections = useSchemaStore((s) => s.collections);
+  const selectedCollectionId = useSchemaStore((s) => s.selectedCollectionId);
+  const inspectorVisible = useInspectorVisible();
+  const { screenToFlowPosition } = useReactFlow();
 
-const edgeTypes = {
-  customEdge: CustomEdge,
-};
+  // React Flow owns transient node state (drag positions, measured size,
+  // selection); the store is only written on drag-stop.
+  const [nodes, setNodes] = useState<CollectionFlowNode[]>([]);
+  const [edges, setEdges] = useState<RelationshipFlowEdge[]>([]);
+  // Computed once: initial framing respects the HUD (incl. an initially open inspector).
+  const [fitViewOptions] = useState(() => ({ padding: hudFitPadding(), maxZoom: 1.1 }));
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const tweenRef = useRef<number | null>(null);
 
-export const Canvas: React.FC<CanvasProps> = ({
-  collections,
-  selectedCollectionId,
-  selectedFieldId,
-  onSelectField,
-  onSelectCollection,
-  onUpdateCollectionPosition,
-  onAddField,
-  onDeleteCollection,
-  onRenameCollection,
-  onDuplicateCollection,
-  onChangeColor,
-  onAddRelationship,
-  onRemoveRelationship,
-  searchQuery,
-  isCodeDrawerExpanded,
-}) => {
-  const [menuOpenColId, setMenuOpenColId] = useState<string | null>(null);
+  // Store → React Flow. After a layout pass, nodes glide to their new
+  // positions; edges follow because React Flow derives them from node positions.
+  useEffect(() => {
+    const animate = useUIStore.getState().animateNextLayout;
+    if (animate) useUIStore.setState({ animateNextLayout: false });
+    if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current);
+    tweenRef.current = null;
 
-  const [nodes, setNodes] = useState<Node[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
+    const from = new Map<string, XYPosition>(nodesRef.current.map((n) => [n.id, n.position]));
+    const moving =
+      animate &&
+      !window.matchMedia('(prefers-reduced-motion: reduce)').matches &&
+      collections.some((c) => {
+        const f = from.get(c.id);
+        return f && (f.x !== c.position.x || f.y !== c.position.y);
+      });
 
-  // Sync state from props
+    if (!moving) {
+      setNodes((prev) => {
+        const byId = new Map<string, CollectionFlowNode>(prev.map((n) => [n.id, n]));
+        return collections.map((col) => makeNode(col, col.position, byId.get(col.id)));
+      });
+    } else {
+      const start = performance.now();
+      const step = (now: number) => {
+        const t = Math.min(1, (now - start) / LAYOUT_TWEEN_MS);
+        const e = easeOutCubic(t);
+        setNodes((prev) => {
+          const byId = new Map<string, CollectionFlowNode>(prev.map((n) => [n.id, n]));
+          return collections.map((col) => {
+            const f = from.get(col.id);
+            const position =
+              t >= 1 || !f ? col.position : { x: f.x + (col.position.x - f.x) * e, y: f.y + (col.position.y - f.y) * e };
+            return makeNode(col, position, byId.get(col.id));
+          });
+        });
+        tweenRef.current = t < 1 ? requestAnimationFrame(step) : null;
+      };
+      tweenRef.current = requestAnimationFrame(step);
+    }
+
+    setEdges((prev) => {
+      const selected = new Set(prev.filter((e) => e.selected).map((e) => e.id));
+      // Visual edge runs parent (source handle, right) → child (target handle, left).
+      return deriveRelationships(collections).map((rel) => ({
+        id: rel.id,
+        source: rel.targetCollectionId,
+        sourceHandle: `source-${rel.targetFieldId}`,
+        target: rel.sourceCollectionId,
+        targetHandle: `target-${rel.sourceFieldId}`,
+        type: 'customEdge',
+        selected: selected.has(rel.id),
+        data: { relType: rel.type },
+      }));
+    });
+  }, [collections]);
+
+  useEffect(() => () => {
+    if (tweenRef.current !== null) cancelAnimationFrame(tweenRef.current);
+  }, []);
+
+  // Mirror app selection into React Flow so the selected node is elevated and shows its handles.
   useEffect(() => {
     setNodes((nds) => {
-      return collections.map((col) => {
-        const existingNode = nds.find((n) => n.id === col.id);
-        return {
-          id: col.id,
-          type: 'collectionNode',
-          position: col.position,
-          data: {
-            collection: col,
-            selectedCollectionId,
-            selectedFieldId,
-            searchQuery,
-            onSelectField,
-            onSelectCollection,
-            onAddField,
-            onDeleteCollection,
-            onRenameCollection,
-            onDuplicateCollection,
-            onChangeColor,
-            menuOpenColId,
-            setMenuOpenColId,
-          },
-          dragHandle: '.drag-handle',
-        };
+      let changed = false;
+      const next = nds.map((n) => {
+        const selected = n.id === selectedCollectionId;
+        if (!!n.selected === selected) return n;
+        changed = true;
+        return { ...n, selected };
       });
+      return changed ? next : nds;
     });
-
-    const newEdges: Edge[] = [];
-    collections.forEach((col) => {
-      col.fields.forEach((field) => {
-        if (field.isForeignKey && field.foreignKeyRef?.targetCollectionId) {
-          const childColId = col.id;
-          const childFieldId = field.id;
-          const parentColId = field.foreignKeyRef.targetCollectionId;
-          const parentFieldId = field.foreignKeyRef.targetFieldId;
-          
-          // Parent is Source (Right side), Child is Target (Left side)
-          newEdges.push({
-            id: `e-${childColId}-${childFieldId}-${parentColId}-${parentFieldId}`,
-            source: parentColId,
-            sourceHandle: `source-${parentFieldId}`,
-            target: childColId,
-            targetHandle: `target-${childFieldId}`,
-            type: 'customEdge',
-            animated: true,
-            style: { stroke: '#6366f1', strokeWidth: 2 },
-            data: { 
-              relType: '1:N',
-              onDelete: () => {
-                onRemoveRelationship(childColId, childFieldId);
-              }
-            },
-          });
-        }
-      });
-    });
-    setEdges(newEdges);
-  }, [
-    collections,
-    selectedCollectionId,
-    selectedFieldId,
-    searchQuery,
-    menuOpenColId,
-    onSelectField,
-    onSelectCollection,
-    onAddField,
-    onDeleteCollection,
-    onRenameCollection,
-    onDuplicateCollection,
-    onChangeColor,
-    onRemoveRelationship
-  ]);
+  }, [selectedCollectionId]);
 
   const onNodesChange = useCallback(
-    (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
-    []
+    (changes: NodeChange<CollectionFlowNode>[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
+    [],
   );
 
   const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
-    []
+    (changes: EdgeChange<RelationshipFlowEdge>[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    [],
   );
 
-  const onConnect = useCallback(
-    (params: Connection) => {
-      if (!params.source || !params.target || !params.sourceHandle || !params.targetHandle) return;
-      // Visual Source is Parent, Visual Target is Child.
-      // App logic expects sourceColId=Child, targetColId=Parent.
-      const parentColId = params.source;
-      const childColId = params.target;
-      const parentFieldId = params.sourceHandle.replace('source-', '');
-      const childFieldId = params.targetHandle.replace('target-', '');
-      
-      onAddRelationship(childColId, childFieldId, parentColId, parentFieldId);
-    },
-    [onAddRelationship]
-  );
+  const onConnect = useCallback((params: Connection) => {
+    if (!params.source || !params.target || !params.sourceHandle || !params.targetHandle) return;
+    if (params.source === params.target && params.sourceHandle.slice(7) === params.targetHandle.slice(7)) return;
+    // Visual source is the parent; the store models the child field as the relationship source.
+    useSchemaStore.getState().addRelationship({
+      sourceCollectionId: params.target,
+      sourceFieldId: params.targetHandle.replace('target-', ''),
+      targetCollectionId: params.source,
+      targetFieldId: params.sourceHandle.replace('source-', ''),
+    });
+  }, []);
 
-  const onNodesDelete = useCallback(
-    (deleted: Node[]) => {
-      deleted.forEach((node) => {
-        onDeleteCollection(node.id);
+  const onNodeDragStop = useCallback((_event: React.MouseEvent, node: Node) => {
+    useSchemaStore.getState().updateCollection(node.id, { position: { x: node.position.x, y: node.position.y } });
+  }, []);
+
+  const onPaneClick = useCallback(() => {
+    useSchemaStore.getState().setSelectedCollection(null);
+    useUIStore.getState().closeCreateCollection();
+  }, []);
+
+  const onNodeMouseEnter = useCallback((_e: React.MouseEvent, node: Node) => {
+    useUIStore.getState().setHoveredCollectionId(node.id);
+  }, []);
+  const onNodeMouseLeave = useCallback(() => {
+    useUIStore.getState().setHoveredCollectionId(null);
+  }, []);
+
+  /** Double-click empty canvas → inline "new collection" popover at the cursor. */
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      if (!(e.target as HTMLElement).classList.contains('react-flow__pane')) return;
+      useUIStore.getState().openCreateCollection({
+        screen: { x: e.clientX, y: e.clientY },
+        flow: screenToFlowPosition({ x: e.clientX, y: e.clientY }),
       });
     },
-    [onDeleteCollection]
-  );
-
-  const onEdgesDelete = useCallback(
-    (deleted: Edge[]) => {
-      deleted.forEach((edge) => {
-        // Child is the target of the visual edge
-        const childFieldId = edge.targetHandle?.replace('target-', '');
-        if (edge.target && childFieldId) {
-          onRemoveRelationship(edge.target, childFieldId);
-        }
-      });
-    },
-    [onRemoveRelationship]
-  );
-
-  const onNodeDragStop = useCallback(
-    (event: React.MouseEvent, node: Node) => {
-      onUpdateCollectionPosition(node.id, { x: node.position.x, y: node.position.y });
-    },
-    [onUpdateCollectionPosition]
+    [screenToFlowPosition],
   );
 
   return (
-    <div 
-      className="fixed inset-0 pl-[280px] pt-16 flex flex-col bg-[#0a0a0a] overflow-hidden select-none transition-all duration-300" 
-      onClick={() => setMenuOpenColId(null)}
-      style={{ paddingBottom: isCodeDrawerExpanded ? '13rem' : '2.5rem' }}
-    >
-      <div className="flex-1 relative w-full h-full">
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onNodesDelete={onNodesDelete}
-          onEdgesDelete={onEdgesDelete}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodeDragStop={onNodeDragStop}
-          onPaneClick={() => onSelectCollection('')}
-          fitView
-          minZoom={0.1}
-          maxZoom={2}
-          defaultEdgeOptions={{ type: 'customEdge' }}
-          snapToGrid={true}
-          snapGrid={[10, 10]}
-        >
-          <Background color="#1d1d1d" variant={BackgroundVariant.Dots} gap={24} size={2} />
-          <MiniMap 
-            className="!bg-[#000000] !border-neutral-800" 
-            nodeColor="#3730a3" 
-            maskColor="rgba(0, 0, 0, 0.5)" 
+    <div className="fixed inset-0 bg-canvas">
+      <ReactFlow
+        nodes={nodes}
+        edges={edges}
+        onNodesChange={onNodesChange}
+        onEdgesChange={onEdgesChange}
+        onConnect={onConnect}
+        nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
+        onNodeDragStop={onNodeDragStop}
+        onPaneClick={onPaneClick}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
+        onDoubleClick={onDoubleClick}
+        zoomOnDoubleClick={false}
+        // Deletion is owned by useKeyboardShortcuts so it is undoable as one step.
+        deleteKeyCode={null}
+        fitView
+        fitViewOptions={fitViewOptions}
+        minZoom={0.1}
+        maxZoom={2}
+        defaultEdgeOptions={{ type: 'customEdge' }}
+        connectionLineStyle={CONNECTION_LINE_STYLE}
+        snapToGrid
+        snapGrid={[10, 10]}
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1.4} />
+        {!inspectorVisible && (
+          <MiniMap
+            position="bottom-right"
+            pannable
+            zoomable
+            style={{ width: 168, height: 108, marginBottom: 28 }}
+            nodeBorderRadius={4}
           />
-        </ReactFlow>
-      </div>
+        )}
+      </ReactFlow>
     </div>
   );
 };
-

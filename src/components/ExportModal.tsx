@@ -1,27 +1,62 @@
 import React, { useState } from 'react';
-import { Download, Copy, Check, X, FileCode } from 'lucide-react';
-import { CollectionNode, TargetFramework } from '../types';
-import { generateCode } from '../utils/codeGenerators';
+import { createPortal } from 'react-dom';
+import { Download, Copy, Check, X, FileCode, Package, Loader2, Sparkles, FolderArchive } from 'lucide-react';
+import JSZip from 'jszip';
+import { Highlight, type PrismTheme } from 'prism-react-renderer';
+import { TargetFramework, CollectionNode } from '../types';
+import {
+  generateCode,
+  generateMongooseCode,
+  generateZodCode,
+  generateTypeScriptCode,
+  generateExpressApiCode,
+  generateJsonSchemaCode,
+  generateMockDocuments,
+} from '../utils/codeGenerators';
+import { useSchemaStore } from '../store/useSchemaStore';
+import { useModal } from '../store/useUIStore';
 
-interface ExportModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  collections: CollectionNode[];
-  framework: TargetFramework;
-}
+type ExportTab =
+  | 'mongoose'
+  | 'zod'
+  | 'typescript'
+  | 'express'
+  | 'jsonSchema'
+  | 'prisma'
+  | 'postgres'
+  | 'drizzle';
 
-export const ExportModal: React.FC<ExportModalProps> = ({
-  isOpen,
-  onClose,
-  collections,
-  framework,
-}) => {
-  const [activeTab, setActiveTab] = useState<TargetFramework>(framework);
-  const [copied, setCopied] = useState(false);
-
+export const ExportModal: React.FC = () => {
+  const { isOpen, close: onClose } = useModal('export');
   if (!isOpen) return null;
+  return <ExportModalContent onClose={onClose} />;
+};
 
-  const code = generateCode(collections, activeTab);
+const ExportModalContent: React.FC<{ onClose: () => void }> = ({ onClose }) => {
+  const collections = useSchemaStore((s) => s.collections);
+  const projectName = useSchemaStore((s) => s.projectName);
+  const [activeTab, setActiveTab] = useState<ExportTab>('mongoose');
+  const [copied, setCopied] = useState(false);
+  const [isZipping, setIsZipping] = useState(false);
+
+  const getCodeForTab = (tab: ExportTab): string => {
+    switch (tab) {
+      case 'mongoose':
+        return generateMongooseCode(collections);
+      case 'zod':
+        return generateZodCode(collections);
+      case 'typescript':
+        return generateTypeScriptCode(collections);
+      case 'express':
+        return generateExpressApiCode(collections);
+      case 'jsonSchema':
+        return generateJsonSchemaCode(collections);
+      default:
+        return generateCode(collections, tab as TargetFramework);
+    }
+  };
+
+  const code = getCodeForTab(activeTab);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(code);
@@ -29,57 +64,252 @@ export const ExportModal: React.FC<ExportModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleDownload = () => {
-    let filename = `schema`;
+  const handleDownloadSingle = () => {
     let ext = 'ts';
     if (activeTab === 'prisma') ext = 'prisma';
     if (activeTab === 'postgres') ext = 'sql';
-    if (activeTab === 'jsonSchema') ext = 'json';
+    if (activeTab === 'jsonSchema') ext = 'js';
 
     const blob = new Blob([code], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${filename}.${ext}`;
+    a.download = `${activeTab}-schema.${ext}`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-      <div className="w-full max-w-3xl bg-[#000000] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col h-[600px]">
+  /**
+   * Bundles a production-ready Full-Stack MongoDB project archive into a .zip
+   */
+  const handleDownloadFullStackZip = async () => {
+    if (collections.length === 0) return;
+    setIsZipping(true);
+
+    try {
+      const zip = new JSZip();
+      const slug = projectName.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+
+      // 1. Models folder
+      const modelsFolder = zip.folder('src/models');
+      collections.forEach((col) => {
+        const modelName = col.name.charAt(0).toUpperCase() + col.name.slice(1).replace(/s$/, '');
+        const singleModelCode = generateMongooseCode([col]);
+        modelsFolder?.file(`${modelName}.ts`, singleModelCode);
+      });
+
+      // 2. Validators folder (Zod)
+      const validatorsFolder = zip.folder('src/validators');
+      collections.forEach((col) => {
+        const modelName = col.name.charAt(0).toUpperCase() + col.name.slice(1).replace(/s$/, '');
+        const singleZodCode = generateZodCode([col]);
+        validatorsFolder?.file(`${modelName}.zod.ts`, singleZodCode);
+      });
+
+      // 3. Routes / Controllers folder (Express)
+      const routesFolder = zip.folder('src/routes');
+      collections.forEach((col) => {
+        const modelName = col.name.charAt(0).toUpperCase() + col.name.slice(1).replace(/s$/, '');
+        const singleRouteCode = generateExpressApiCode([col]);
+        routesFolder?.file(`${modelName.toLowerCase()}.routes.ts`, singleRouteCode);
+      });
+
+      // 4. Types folder
+      const typesFolder = zip.folder('src/types');
+      typesFolder?.file('index.ts', generateTypeScriptCode(collections));
+
+      // 5. Scripts (Indexes migration & Mock seed script)
+      const scriptsFolder = zip.folder('scripts');
+      scriptsFolder?.file('indexes.js', generateJsonSchemaCode(collections));
+
+      const mockData = generateMockDocuments(collections, 5);
+      const seedScript = `// Seed script using realistic mock data generated by SchemaFlow\nimport mongoose from 'mongoose';\n\nconst mockData = ${JSON.stringify(mockData, null, 2)};\n\nasync function seed() {\n  const uri = process.env.MONGODB_URI || 'mongodb://localhost:27017/${slug}_db';\n  await mongoose.connect(uri);\n  console.log('Connected to MongoDB. Seeding collections...');\n\n  for (const [colName, docs] of Object.entries(mockData)) {\n    const col = mongoose.connection.collection(colName.toLowerCase());\n    await col.deleteMany({});\n    if (docs.length > 0) {\n      await col.insertMany(docs);\n      console.log(\`✓ Seeded \${docs.length} documents into \${colName}\`);\n    }\n  }\n\n  console.log('Seeding completed successfully!');\n  await mongoose.disconnect();\n}\n\nseed().catch(console.error);\n`;
+      scriptsFolder?.file('seed.ts', seedScript);
+
+      // 6. Project Architecture Documentation
+      let docsMarkdown = `# ${projectName} - Full-Stack MongoDB Starter\n\n`;
+      docsMarkdown += `Generated by **SchemaFlow** on ${new Date().toLocaleDateString()}.\n\n`;
+      docsMarkdown += `## Collections & Schemas\n\n`;
+      collections.forEach((c) => {
+        docsMarkdown += `### \`${c.name}\`\n`;
+        docsMarkdown += `- **Timestamps**: ${c.timestamps ? 'Enabled' : 'Disabled'}\n`;
+        docsMarkdown += `| Field | Type | Required | Unique | Indexed | Notes |\n`;
+        docsMarkdown += `| :--- | :--- | :--- | :--- | :--- | :--- |\n`;
+        c.fields.forEach((f) => {
+          docsMarkdown += `| \`${f.name}\` | \`${f.type}\` | ${f.validation.required ? '✓' : '-'} | ${f.validation.unique ? '✓' : '-'} | ${f.index?.indexed ? '✓' : '-'} | ${f.isForeignKey ? 'FK → ' + f.foreignKeyRef?.targetCollectionId : ''} |\n`;
+        });
+        docsMarkdown += `\n`;
+      });
+      docsMarkdown += `## Quickstart\n\n\`\`\`bash\nnpm install\nnpm run seed\nnpm run dev\n\`\`\`\n`;
+      zip.file('SCHEMA_DOCS.md', docsMarkdown);
+
+      // 7. Config files
+      zip.file(
+        'package.json',
+        JSON.stringify(
+          {
+            name: `${slug}-service`,
+            version: '1.0.0',
+            private: true,
+            type: 'module',
+            scripts: {
+              dev: 'tsx watch src/index.ts',
+              build: 'tsc',
+              seed: 'tsx scripts/seed.ts',
+              start: 'node dist/index.js',
+            },
+            dependencies: {
+              dotenv: '^16.4.5',
+              express: '^4.19.2',
+              mongoose: '^8.4.0',
+              zod: '^3.23.8',
+            },
+            devDependencies: {
+              '@types/express': '^4.17.21',
+              '@types/node': '^20.12.7',
+              tsx: '^4.7.2',
+              typescript: '^5.4.5',
+            },
+          },
+          null,
+          2,
+        ),
+      );
+
+      zip.file(
+        'tsconfig.json',
+        JSON.stringify(
+          {
+            compilerOptions: {
+              target: 'ES2022',
+              module: 'NodeNext',
+              moduleResolution: 'NodeNext',
+              outDir: './dist',
+              rootDir: './src',
+              strict: true,
+              esModuleInterop: true,
+              skipLibCheck: true,
+            },
+            include: ['src/**/*', 'scripts/**/*'],
+          },
+          null,
+          2,
+        ),
+      );
+
+      zip.file('.env.example', `PORT=3000\nMONGODB_URI=mongodb://localhost:27017/${slug}_db\n`);
+
+      // 8. Generate and trigger download
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${slug}-fullstack-starter.zip`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to generate starter zip:', err);
+    } finally {
+      setIsZipping(false);
+    }
+  };
+
+  const themeAwarePrismTheme: PrismTheme = {
+    plain: {
+      color: 'var(--code-text)',
+      backgroundColor: 'transparent',
+    },
+    styles: [
+      {
+        types: ['comment', 'prolog', 'doctype', 'cdata'],
+        style: { color: 'var(--code-comment)', fontStyle: 'italic' },
+      },
+      {
+        types: ['punctuation'],
+        style: { color: 'var(--code-punctuation)' },
+      },
+      {
+        types: ['property', 'tag', 'boolean', 'number', 'constant', 'symbol', 'deleted'],
+        style: { color: 'var(--code-number)' },
+      },
+      {
+        types: ['selector', 'attr-name', 'string', 'char', 'builtin', 'inserted'],
+        style: { color: 'var(--code-string)' },
+      },
+      {
+        types: ['operator', 'entity', 'url'],
+        style: { color: 'var(--code-punctuation)' },
+      },
+      {
+        types: ['atrule', 'attr-value', 'keyword'],
+        style: { color: 'var(--code-keyword)' },
+      },
+      {
+        types: ['function', 'class-name'],
+        style: { color: 'var(--code-function)' },
+      },
+      {
+        types: ['regex', 'important', 'variable'],
+        style: { color: 'var(--code-type)' },
+      },
+    ],
+  };
+
+  const TABS_LIST: { id: ExportTab; label: string }[] = [
+    { id: 'mongoose', label: 'Mongoose (TS)' },
+    { id: 'zod', label: 'Zod Validation' },
+    { id: 'typescript', label: 'TypeScript Types' },
+    { id: 'express', label: 'Express API' },
+    { id: 'jsonSchema', label: '$jsonSchema & Indexes' },
+    { id: 'prisma', label: 'Prisma' },
+    { id: 'postgres', label: 'PostgreSQL' },
+    { id: 'drizzle', label: 'Drizzle' },
+  ];
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Export code and schemas"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 glass-backdrop animate-in fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-4xl glass-panel rounded-panel overflow-hidden flex flex-col h-[640px]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
-        <div className="p-5 border-b border-neutral-800 flex items-center justify-between">
+        <div className="p-5 border-b border-[var(--glass-border)] flex items-center justify-between bg-[var(--glass-surface-elevated)]">
           <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
-              <FileCode className="w-4 h-4 text-indigo-400" />
+            <div className="w-8 h-8 rounded-control bg-[var(--glass-hover)] border border-[var(--glass-border)] flex items-center justify-center">
+              <FileCode className="w-4 h-4 text-accent" />
             </div>
-            <h3 className="text-base font-bold text-white">Export ORM & SQL Code</h3>
+            <div>
+              <h3 className="text-base font-bold text-[var(--glass-text-primary)]">Full-Stack Code & Schema Export</h3>
+              <p className="text-xs text-[var(--glass-text-secondary)]">
+                Export Mongoose, Zod, Express routers, or download a complete project ZIP starter.
+              </p>
+            </div>
           </div>
-          <button onClick={onClose} className="text-neutral-400 hover:text-white p-1.5 rounded-full transition-colors cursor-pointer">
+          <button
+            onClick={onClose}
+            className="text-[var(--glass-text-secondary)] hover:text-[var(--glass-text-primary)] p-1.5 rounded-control transition-colors cursor-pointer hover:bg-[var(--glass-hover)]"
+            aria-label="Close export dialog"
+          >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Format Selector Tabs */}
-        <div className="px-5 pt-3 border-b border-neutral-800 flex items-center gap-2 bg-[#0a0a0a] overflow-x-auto">
-          {(
-            [
-              { id: 'mongoose', label: 'Mongoose (JS/TS)' },
-              { id: 'prisma', label: 'Prisma Schema' },
-              { id: 'postgres', label: 'PostgreSQL DDL' },
-              { id: 'drizzle', label: 'Drizzle ORM' },
-              { id: 'typescript', label: 'TypeScript Types' },
-              { id: 'jsonSchema', label: 'JSON Schema' },
-            ] as const
-          ).map((tab) => (
+        <div className="px-5 pt-3 border-b border-[var(--glass-border)] flex items-center gap-2 bg-[var(--glass-surface-elevated)] overflow-x-auto no-scrollbar">
+          {TABS_LIST.map((tab) => (
             <button
               key={tab.id}
-              onClick={() => setActiveTab(tab.id as TargetFramework)}
+              onClick={() => setActiveTab(tab.id)}
               className={`px-3.5 py-2 text-xs font-mono border-b-2 transition-all cursor-pointer whitespace-nowrap ${
                 activeTab === tab.id
-                  ? 'border-indigo-500 text-indigo-300 font-bold'
-                  : 'border-transparent text-neutral-400 hover:text-white'
+                  ? 'border-accent text-accent font-bold'
+                  : 'border-transparent text-[var(--glass-text-secondary)] hover:text-[var(--glass-text-primary)]'
               }`}
             >
               {tab.label}
@@ -87,28 +317,46 @@ export const ExportModal: React.FC<ExportModalProps> = ({
           ))}
         </div>
 
-        {/* Code Output Area */}
-        <div className="flex-1 p-5 bg-[#0a0a0a] overflow-y-auto font-mono text-xs text-neutral-200">
-          <pre className="leading-relaxed">
-            <code>{code}</code>
-          </pre>
+        {/* Code Output Area with Theme-Aware Syntax Highlighting */}
+        <div className="flex-1 overflow-auto bg-[var(--code-bg)] p-4 border-b border-[var(--glass-border)]">
+          <Highlight theme={themeAwarePrismTheme} code={code} language="typescript">
+            {({ className, style, tokens, getLineProps, getTokenProps }) => (
+              <pre
+                className={`${className} font-mono text-[13px] leading-relaxed bg-transparent selection:bg-accent/20`}
+                style={{ ...style, background: 'transparent' }}
+              >
+                {tokens.map((line, i) => (
+                  <div key={i} {...getLineProps({ line, key: i })} className="flex hover:bg-[var(--glass-hover)]">
+                    <span className="w-10 shrink-0 select-none text-right pr-4 text-[var(--code-gutter-text)] font-mono text-[11px]">
+                      {i + 1}
+                    </span>
+                    <span className="flex-1">
+                      {line.map((token, key) => (
+                        <span key={key} {...getTokenProps({ token, key })} />
+                      ))}
+                    </span>
+                  </div>
+                ))}
+              </pre>
+            )}
+          </Highlight>
         </div>
 
         {/* Footer Actions */}
-        <div className="p-4 border-t border-neutral-800 bg-[#000000] flex items-center justify-between">
-          <span className="text-xs text-neutral-400 font-mono">
-            {collections.length} Collections / Tables defined
+        <div className="p-4 border-t border-[var(--glass-border)] bg-[var(--glass-surface-elevated)] flex items-center justify-between">
+          <span className="text-xs text-[var(--glass-text-secondary)] font-mono">
+            {collections.length} Collections · Architecture Ready
           </span>
 
           <div className="flex items-center gap-2">
             <button
               onClick={handleCopy}
-              className="px-4 py-2 bg-[#0a0a0a] hover:bg-neutral-800 text-white text-xs font-mono rounded-full border border-neutral-800 transition-colors flex items-center gap-1.5 cursor-pointer font-semibold"
+              className="px-3.5 py-2 bg-[var(--glass-input-bg)] hover:bg-[var(--glass-hover)] text-[var(--glass-text-primary)] text-xs font-mono rounded-control border border-[var(--glass-border)] transition-colors flex items-center gap-1.5 cursor-pointer font-semibold"
             >
               {copied ? (
                 <>
-                  <Check className="w-4 h-4 text-emerald-400" />
-                  <span className="text-emerald-400 font-bold">Copied to Clipboard!</span>
+                  <Check className="w-4 h-4 text-accent" />
+                  <span className="text-accent font-bold">Copied!</span>
                 </>
               ) : (
                 <>
@@ -119,15 +367,36 @@ export const ExportModal: React.FC<ExportModalProps> = ({
             </button>
 
             <button
-              onClick={handleDownload}
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-mono font-bold rounded-full transition-colors flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(99,102,241,0.3)]"
+              onClick={handleDownloadSingle}
+              className="px-3.5 py-2 bg-[var(--glass-input-bg)] hover:bg-[var(--glass-hover)] text-[var(--glass-text-primary)] text-xs font-mono rounded-control border border-[var(--glass-border)] transition-colors flex items-center gap-1.5 cursor-pointer"
+              title="Download single code file"
             >
               <Download className="w-4 h-4" />
               <span>Download File</span>
             </button>
+
+            {/* Prominent Full-Stack Starter ZIP Export */}
+            <button
+              disabled={isZipping || collections.length === 0}
+              onClick={handleDownloadFullStackZip}
+              className="btn btn-primary text-xs font-mono font-bold flex items-center gap-2 cursor-pointer shadow-lg active:scale-95 disabled:opacity-50"
+            >
+              {isZipping ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Bundling ZIP...</span>
+                </>
+              ) : (
+                <>
+                  <FolderArchive className="w-4 h-4" />
+                  <span>Download Full-Stack Starter (.zip)</span>
+                </>
+              )}
+            </button>
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };

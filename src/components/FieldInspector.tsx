@@ -1,273 +1,512 @@
-import React from 'react';
-import { X, Trash2, ChevronDown, Check } from 'lucide-react';
-import { CollectionNode, SchemaField, FieldType } from '../types';
+import React, { useEffect, useState } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
+import { ChevronDown, ChevronRight, Copy, PanelRightClose, PanelRightOpen, Plus, Trash2, X } from 'lucide-react';
+import type { CollectionNode, FieldType, RelationshipType, SchemaField } from '../types';
+import { useSchemaStore } from '../store/useSchemaStore';
+import { INSPECTOR_WIDTH, useUIStore } from '../store/useUIStore';
+import { countRelationships, relationshipIdForField, RELATIONSHIP_LABELS } from '../utils/schemaOps';
+import { ACCENT_COLORS, COLLECTION_ICONS, accentFor, iconFor } from './nodeVisuals';
 
-interface FieldInspectorProps {
-  collections: CollectionNode[];
-  selectedCollectionId: string | null;
-  selectedFieldId: string | null;
-  onUpdateField: (colId: string, fieldId: string, updated: Partial<SchemaField>) => void;
-  onDeleteField: (colId: string, fieldId: string) => void;
-  onClose: () => void;
+const DATA_TYPES: FieldType[] = ['String', 'Number', 'Boolean', 'Date', 'ObjectId', 'Array', 'Enum', 'JSON', 'Decimal', 'UUID'];
+const actions = () => useSchemaStore.getState();
+
+/** True when the inspector panel is on screen (something selected and not collapsed). */
+export function useInspectorVisible(): boolean {
+  const hasSelection = useSchemaStore(
+    (s) => !!s.selectedCollectionId && s.collections.some((c) => c.id === s.selectedCollectionId),
+  );
+  const collapsed = useUIStore((s) => s.isInspectorCollapsed);
+  return hasSelection && !collapsed;
 }
 
-export const FieldInspector: React.FC<FieldInspectorProps> = ({
-  collections,
-  selectedCollectionId,
-  selectedFieldId,
-  onUpdateField,
-  onDeleteField,
-  onClose,
-}) => {
-  if (!selectedCollectionId || !selectedFieldId) return null;
-
-  const currentCollection = collections.find((c) => c.id === selectedCollectionId);
-  const currentField = currentCollection?.fields.find((f) => f.id === selectedFieldId);
-
-  if (!currentCollection || !currentField) return null;
-
-  const dataTypes: FieldType[] = [
-    'String',
-    'Number',
-    'Boolean',
-    'Date',
-    'ObjectId',
-    'Array',
-    'JSON',
-    'Decimal',
-    'UUID',
-  ];
+export const FieldInspector: React.FC = () => {
+  const col = useSchemaStore((s) => s.collections.find((c) => c.id === s.selectedCollectionId));
+  const selectedFieldId = useSchemaStore((s) => s.selectedFieldId);
+  const collapsed = useUIStore((s) => s.isInspectorCollapsed);
+  const setCollapsed = useUIStore((s) => s.setInspectorCollapsed);
+  const field = col?.fields.find((f) => f.id === selectedFieldId);
 
   return (
-    <aside className="absolute right-0 top-16 h-[calc(100vh-64px)] w-[320px] bg-[#0a0a0a] border-l border-neutral-800 z-30 flex flex-col shadow-[-10px_0_30px_rgba(0,0,0,0.5)]">
-      {/* Header */}
-      <div className="p-4 border-b border-neutral-800 flex items-center justify-between">
-        <span className="font-bold text-xs tracking-wider uppercase text-neutral-200">Field Inspector</span>
-        <button
-          onClick={onClose}
-          className="text-neutral-400 hover:text-white p-1 rounded-full transition-colors"
-        >
-          <X className="w-4 h-4" />
-        </button>
-      </div>
-
-      {/* Body Content */}
-      <div className="p-6 flex-1 overflow-y-auto space-y-6">
-        {/* Field Name & Collection */}
-        <div>
-          <label className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider block mb-1.5 font-semibold">
-            Field Name
-          </label>
-          <input
-            type="text"
-            value={currentField.name}
-            onChange={(e) =>
-              onUpdateField(selectedCollectionId, selectedFieldId, { name: e.target.value })
-            }
-            className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-sm text-indigo-300 font-mono font-semibold focus:outline-none focus:border-indigo-500 transition-all"
-          />
-          <p className="text-xs text-neutral-500 font-mono mt-1.5">
-            Belongs to: <span className="text-neutral-200 font-semibold">{currentCollection.name} Collection</span>
-          </p>
-        </div>
-
-        {/* Data Type Dropdown */}
-        <div className="space-y-1.5">
-          <label className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider block font-semibold">
-            Data Type
-          </label>
-          <div className="relative">
-            <select
-              value={currentField.type}
-              onChange={(e) =>
-                onUpdateField(selectedCollectionId, selectedFieldId, {
-                  type: e.target.value as FieldType,
-                })
-              }
-              className="w-full bg-[#000000] border border-neutral-800 rounded-xl p-2.5 text-sm text-white font-mono appearance-none focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 outline-none cursor-pointer"
-            >
-              {dataTypes.map((t) => (
-                <option key={t} value={t}>
-                  {t}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 pointer-events-none" />
-          </div>
-        </div>
-
-        {/* Foreign Key Relation Config */}
-        <div className="space-y-3 pt-3 border-t border-neutral-800">
-          <div className="flex items-center justify-between">
-            <label className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider font-semibold">
-              Foreign Key Relation
-            </label>
-            <input
-              type="checkbox"
-              checked={!!currentField.isForeignKey}
-              onChange={(e) => {
-                const checked = e.target.checked;
-                onUpdateField(selectedCollectionId, selectedFieldId, {
-                  isForeignKey: checked,
-                  foreignKeyRef: checked
-                    ? currentField.foreignKeyRef || {
-                        targetCollectionId: collections[0]?.id || '',
-                        targetFieldId: collections[0]?.fields[0]?.id || '',
-                      }
-                    : undefined,
-                });
-              }}
-              className="w-4 h-4 rounded bg-[#000000] border-neutral-700 text-indigo-600 focus:ring-indigo-500"
-            />
-          </div>
-
-          {currentField.isForeignKey && (
-            <div className="space-y-2 bg-[#000000] p-3.5 rounded-2xl border border-neutral-800">
-              <label className="text-xs text-neutral-400 block font-medium">Target Collection</label>
-              <select
-                value={currentField.foreignKeyRef?.targetCollectionId || ''}
-                onChange={(e) => {
-                  const targetColId = e.target.value;
-                  const targetCol = collections.find((c) => c.id === targetColId);
-                  const firstFieldId = targetCol?.fields[0]?.id || '';
-                  onUpdateField(selectedCollectionId, selectedFieldId, {
-                    foreignKeyRef: {
-                      targetCollectionId: targetColId,
-                      targetFieldId: firstFieldId,
-                    },
-                  });
-                }}
-                className="w-full bg-[#1a1a1a] text-xs text-white border border-neutral-800 rounded-lg p-2 focus:outline-none focus:border-indigo-500"
-              >
-                {collections.map((col) => (
-                  <option key={col.id} value={col.id}>
-                    {col.name}
-                  </option>
-                ))}
-              </select>
-
-              <label className="text-xs text-neutral-400 block mt-2 font-medium">Target Field</label>
-              <select
-                value={currentField.foreignKeyRef?.targetFieldId || ''}
-                onChange={(e) => {
-                  onUpdateField(selectedCollectionId, selectedFieldId, {
-                    foreignKeyRef: {
-                      targetCollectionId: currentField.foreignKeyRef?.targetCollectionId || '',
-                      targetFieldId: e.target.value,
-                    },
-                  });
-                }}
-                className="w-full bg-[#1a1a1a] text-xs text-white border border-neutral-800 rounded-lg p-2 focus:outline-none focus:border-indigo-500"
-              >
-                {collections
-                  .find((c) => c.id === currentField.foreignKeyRef?.targetCollectionId)
-                  ?.fields.map((f) => (
-                    <option key={f.id} value={f.id}>
-                      {f.name} ({f.type})
-                    </option>
-                  ))}
-              </select>
-            </div>
-          )}
-        </div>
-
-        {/* Validation Rules */}
-        <div className="space-y-4 pt-3 border-t border-neutral-800">
-          <label className="text-[11px] font-mono text-neutral-400 uppercase tracking-wider block font-semibold">
-            Validation Rules
-          </label>
-
-          {/* Required Switch */}
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-neutral-200">Required</span>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!currentField.validation.required}
-                onChange={(e) =>
-                  onUpdateField(selectedCollectionId, selectedFieldId, {
-                    validation: {
-                      ...currentField.validation,
-                      required: e.target.checked,
-                    },
-                  })
-                }
-                className="sr-only peer"
-              />
-              <div className="w-9 h-5 bg-neutral-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600" />
-            </label>
-          </div>
-
-          {/* Unique Switch */}
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-neutral-200">Unique</span>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={!!currentField.validation.unique}
-                onChange={(e) =>
-                  onUpdateField(selectedCollectionId, selectedFieldId, {
-                    validation: {
-                      ...currentField.validation,
-                      unique: e.target.checked,
-                    },
-                  })
-                }
-                className="sr-only peer"
-              />
-              <div className="w-9 h-5 bg-neutral-800 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600" />
-            </label>
-          </div>
-
-          {/* Match Regex */}
-          <div className="space-y-1">
-            <span className="text-xs text-neutral-400 font-medium">Match (Regex Pattern)</span>
-            <input
-              type="text"
-              value={currentField.validation.match || ''}
-              onChange={(e) =>
-                onUpdateField(selectedCollectionId, selectedFieldId, {
-                  validation: {
-                    ...currentField.validation,
-                    match: e.target.value,
-                  },
-                })
-              }
-              placeholder="/^\S+@\S+\.\S+$/"
-              className="w-full bg-[#000000] border border-neutral-800 rounded-xl px-3 py-2 text-sm font-mono text-white focus:border-indigo-500 focus:outline-none transition-colors"
-            />
-          </div>
-
-          {/* Default Value */}
-          <div className="space-y-1">
-            <label className="text-xs text-neutral-400 font-medium">Default Value</label>
-            <input
-              type="text"
-              value={currentField.validation.defaultVal || ''}
-              onChange={(e) =>
-                onUpdateField(selectedCollectionId, selectedFieldId, {
-                  validation: {
-                    ...currentField.validation,
-                    defaultVal: e.target.value,
-                  },
-                })
-              }
-              placeholder="e.g. 'user@example.com' or Date.now"
-              className="w-full bg-[#000000] border border-neutral-800 rounded-xl p-2.5 text-sm text-white font-mono focus:ring-1 focus:ring-indigo-500 focus:outline-none placeholder:text-neutral-600"
-            />
-          </div>
-        </div>
-
-        {/* Delete Field Action */}
-        <div className="pt-6 border-t border-neutral-800">
-          <button
-            onClick={() => onDeleteField(selectedCollectionId, selectedFieldId)}
-            className="w-full py-2.5 text-xs font-semibold text-red-400 hover:bg-red-500/10 border border-red-500/20 hover:border-red-500/40 rounded-full transition-colors flex items-center justify-center gap-2 cursor-pointer"
+    <>
+      <AnimatePresence>
+        {col && !collapsed && (
+          <motion.aside
+            key="inspector"
+            initial={{ x: 28, opacity: 0 }}
+            animate={{ x: 0, opacity: 1 }}
+            exit={{ x: 28, opacity: 0 }}
+            transition={{ type: 'spring', stiffness: 460, damping: 38, mass: 0.8 }}
+            style={{ width: INSPECTOR_WIDTH }}
+            className="panel fixed top-[64px] right-3 bottom-[76px] z-30 flex max-w-[calc(100vw-24px)] flex-col overflow-hidden lg:bottom-3"
+            aria-label="Inspector"
           >
-            <Trash2 className="w-4 h-4" /> Delete Field
-          </button>
-        </div>
-      </div>
-    </aside>
+            <InspectorHeader col={col} field={field} onCollapse={() => setCollapsed(true)} />
+            <div className="min-h-0 flex-1 overflow-y-auto">
+              {field ? <FieldPanel col={col} field={field} /> : <CollectionPanel col={col} />}
+            </div>
+          </motion.aside>
+        )}
+      </AnimatePresence>
+
+      {col && collapsed && (
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="panel fixed top-[64px] right-3 z-30 flex h-9 items-center gap-2 px-3 text-[12.5px] font-medium text-fg-secondary transition hover:text-fg"
+          title="Open inspector"
+        >
+          <PanelRightOpen className="h-4 w-4" />
+          Inspector
+        </button>
+      )}
+    </>
   );
 };
+
+// ---------------------------------------------------------------------------
+
+function InspectorHeader({ col, field, onCollapse }: { col: CollectionNode; field?: SchemaField; onCollapse: () => void }) {
+  const Icon = iconFor(col.icon);
+  const accent = accentFor(col.colorTag);
+  return (
+    <div className="flex h-12 shrink-0 items-center gap-2 border-b border-line bg-surface-subtle px-3">
+      <div className="flex min-w-0 flex-1 items-center gap-1.5 text-[12.5px]">
+        <span className="h-3 w-[3px] shrink-0 rounded-full" style={{ background: accent }} aria-hidden />
+        <Icon className="h-3.5 w-3.5 shrink-0 text-fg-secondary" />
+        <button
+          type="button"
+          onClick={() => actions().setSelectedField(null, col.id)}
+          className={`truncate rounded px-1 transition hover:bg-surface-hover ${field ? 'text-fg-secondary' : 'font-semibold text-fg'}`}
+        >
+          {col.name}
+        </button>
+        {field && (
+          <>
+            <ChevronRight className="h-3 w-3 shrink-0 text-fg-secondary" />
+            <span className="truncate font-mono text-[12px] font-medium text-fg">{field.name}</span>
+          </>
+        )}
+      </div>
+      <button type="button" className="btn btn-ghost btn-icon !h-7 !w-7" title="Collapse inspector" onClick={onCollapse}>
+        <PanelRightClose className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        className="btn btn-ghost btn-icon !h-7 !w-7"
+        title="Close (Esc)"
+        onClick={() => actions().setSelectedCollection(null)}
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+function Section({ title, children, aside }: { title: string; children: React.ReactNode; aside?: React.ReactNode }) {
+  return (
+    <section className="border-b border-line px-4 py-4 last:border-b-0">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="section-title">{title}</h3>
+        {aside}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function Toggle({
+  label,
+  hint,
+  checked,
+  onChange,
+  disabled,
+}: {
+  label: string;
+  hint?: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <label className={`flex items-center justify-between gap-3 ${disabled ? 'opacity-40' : 'cursor-pointer'}`}>
+      <span className="min-w-0">
+        <span className="block text-[12.5px] text-fg">{label}</span>
+        {hint && <span className="block text-[11px] text-fg-secondary">{hint}</span>}
+      </span>
+      <input
+        type="checkbox"
+        className="peer sr-only"
+        checked={checked}
+        disabled={disabled}
+        onChange={(e) => onChange(e.target.checked)}
+      />
+      <span className="switch" />
+    </label>
+  );
+}
+
+function Select<T extends string>({
+  value,
+  options,
+  onChange,
+  mono,
+}: {
+  value: T;
+  options: { value: T; label: string }[];
+  onChange: (v: T) => void;
+  mono?: boolean;
+}) {
+  return (
+    <div className="relative">
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value as T)}
+        className={`field-input cursor-pointer appearance-none pr-8 ${mono ? 'font-mono text-[12px]' : ''}`}
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value} className="bg-surface">
+            {o.label}
+          </option>
+        ))}
+      </select>
+      <ChevronDown className="pointer-events-none absolute top-1/2 right-2.5 h-3.5 w-3.5 -translate-y-1/2 text-fg-secondary" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Collection panel
+// ---------------------------------------------------------------------------
+
+function CollectionPanel({ col }: { col: CollectionNode }) {
+  const [name, setName] = useState(col.name);
+  useEffect(() => setName(col.name), [col.id, col.name]);
+  const relationCount = useSchemaStore((s) =>
+    countRelationships(s.collections.filter((c) => c.id === col.id)) +
+    s.collections.reduce(
+      (n, c) => n + (c.id === col.id ? 0 : c.fields.filter((f) => f.foreignKeyRef?.targetCollectionId === col.id).length),
+      0,
+    ),
+  );
+  const accent = accentFor(col.colorTag);
+  const commitName = () => {
+    actions().updateCollection(col.id, { name });
+    setName(useSchemaStore.getState().collections.find((c) => c.id === col.id)?.name ?? name);
+  };
+
+  return (
+    <>
+      <Section title="Collection">
+        <div>
+          <label className="panel-label" htmlFor="sf-col-name">Name</label>
+          <input
+            id="sf-col-name"
+            className="field-input font-medium"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={commitName}
+            onKeyDown={(e) => e.key === 'Enter' && (e.currentTarget as HTMLInputElement).blur()}
+          />
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-[11.5px]">
+          <div className="rounded-card border border-line bg-surface-subtle px-3 py-2">
+            <div className="text-fg-secondary">Fields</div>
+            <div className="font-mono text-[15px] text-fg">{col.fields.length}</div>
+          </div>
+          <div className="rounded-card border border-line bg-surface-subtle px-3 py-2">
+            <div className="text-fg-secondary">Relations</div>
+            <div className="font-mono text-[15px] text-fg">{relationCount}</div>
+          </div>
+        </div>
+      </Section>
+
+      <Section title="Appearance">
+        <div>
+          <span className="panel-label">Accent</span>
+          <div className="flex flex-wrap gap-2">
+            {ACCENT_COLORS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                aria-label={`Accent ${c}`}
+                onClick={() => actions().updateCollection(col.id, { colorTag: c })}
+                aria-pressed={accent === c}
+                className="h-6 w-6 rounded-full border border-line transition hover:scale-110"
+                style={{ background: c, outline: accent === c ? '1.5px solid var(--text-primary)' : undefined, outlineOffset: 2 }}
+              />
+            ))}
+          </div>
+        </div>
+        <div>
+          <span className="panel-label">Icon</span>
+          <div className="grid grid-cols-6 gap-1.5">
+            {Object.entries(COLLECTION_ICONS).map(([key, Icon]) => {
+              const active = iconFor(col.icon) === Icon;
+              return (
+                <button
+                  key={key}
+                  type="button"
+                  title={key}
+                  onClick={() => actions().updateCollection(col.id, { icon: key })}
+                  aria-pressed={active}
+                  className={`flex h-9 items-center justify-center rounded-control border transition ${
+                    active ? 'border-accent bg-accent-soft text-accent' : 'border-line bg-surface text-fg-secondary hover:bg-surface-hover hover:text-fg'
+                  }`}
+                >
+                  <Icon className="h-4 w-4" />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </Section>
+
+      <Section
+        title="Fields"
+        aside={
+          <button type="button" className="btn btn-ghost !h-6 !px-1.5 !text-[11px]" onClick={() => actions().addField(col.id)}>
+            <Plus className="h-3.5 w-3.5" /> Add
+          </button>
+        }
+      >
+        <ul className="-mx-1 space-y-0.5">
+          {col.fields.map((f) => (
+            <li key={f.id}>
+              <button
+                type="button"
+                onClick={() => actions().setSelectedField(f.id, col.id)}
+                className="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition hover:bg-surface-hover"
+              >
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-fg">{f.name}</span>
+                <span className="font-mono text-[11px] text-fg-secondary">{f.type}</span>
+                <ChevronRight className="h-3 w-3 text-fg-secondary" />
+              </button>
+            </li>
+          ))}
+          {col.fields.length === 0 && <li className="px-2 py-1.5 text-[12px] text-fg-secondary">No fields yet.</li>}
+        </ul>
+      </Section>
+
+      <Section title="Actions">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => actions().duplicateCollection(col.id)}
+            className="btn btn-secondary"
+          >
+            <Copy className="h-3.5 w-3.5" /> Duplicate
+          </button>
+          <button
+            type="button"
+            onClick={() => actions().deleteCollection(col.id)}
+            className="btn btn-danger"
+          >
+            <Trash2 className="h-3.5 w-3.5" /> Delete
+          </button>
+        </div>
+      </Section>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Field panel
+// ---------------------------------------------------------------------------
+
+function FieldPanel({ col, field }: { col: CollectionNode; field: SchemaField }) {
+  const collections = useSchemaStore((s) => s.collections);
+  const update = (patch: Partial<SchemaField>) => actions().updateField(col.id, field.id, patch);
+  const updateValidation = (patch: Partial<SchemaField['validation']>) =>
+    update({ validation: { ...field.validation, ...patch } });
+
+  const ref = field.foreignKeyRef;
+  const targetCol = collections.find((c) => c.id === ref?.targetCollectionId);
+  const relType: RelationshipType = ref?.relationType ?? 'one-to-many';
+  const indexed = !!field.index?.indexed;
+
+  return (
+    <>
+      <Section title="Field">
+        <div>
+          <label className="panel-label" htmlFor="sf-field-name">Name</label>
+          <input
+            id="sf-field-name"
+            className="field-input font-mono text-[12.5px]"
+            value={field.name}
+            onChange={(e) => update({ name: e.target.value })}
+          />
+        </div>
+        <div>
+          <span className="panel-label">Type</span>
+          <Select
+            mono
+            value={field.type}
+            options={DATA_TYPES.map((t) => ({ value: t, label: t }))}
+            onChange={(type) => update({ type })}
+          />
+        </div>
+        {field.type === 'Array' && (
+          <div>
+            <span className="panel-label">Item type</span>
+            <Select
+              mono
+              value={field.array?.itemType ?? 'String'}
+              options={DATA_TYPES.filter((t) => t !== 'Array').map((t) => ({ value: t, label: t }))}
+              onChange={(itemType) => update({ array: { ...field.array, itemType } })}
+            />
+          </div>
+        )}
+        {field.type === 'Enum' && (
+          <div>
+            <label className="panel-label" htmlFor="sf-enum">Allowed values</label>
+            <input
+              id="sf-enum"
+              className="field-input font-mono text-[12px]"
+              placeholder="draft, published, archived"
+              value={(field.validation.enumOptions ?? []).join(', ')}
+              onChange={(e) =>
+                updateValidation({
+                  enumOptions: e.target.value.split(',').map((s) => s.trim()).filter(Boolean),
+                })
+              }
+            />
+          </div>
+        )}
+      </Section>
+
+      <Section title="Constraints">
+        <Toggle label="Primary key" checked={!!field.isPrimaryKey} onChange={(v) => update({ isPrimaryKey: v })} />
+        <Toggle label="Required" hint="Value must be present" checked={!!field.validation.required} onChange={(v) => updateValidation({ required: v })} />
+        <Toggle label="Unique" hint="Enforced with a unique index" checked={!!field.validation.unique} onChange={(v) => updateValidation({ unique: v })} />
+        <Toggle
+          label="Indexed"
+          hint="Secondary index for faster lookups"
+          checked={indexed}
+          onChange={(v) => update({ index: v ? { ...field.index, indexed: true } : undefined })}
+        />
+        {indexed && field.type === 'Date' && (
+          <div>
+            <label className="panel-label" htmlFor="sf-ttl">TTL (seconds)</label>
+            <input
+              id="sf-ttl"
+              type="number"
+              min={0}
+              className="field-input font-mono text-[12px]"
+              placeholder="e.g. 86400"
+              value={field.index?.ttlSeconds ?? ''}
+              onChange={(e) =>
+                update({
+                  index: {
+                    ...field.index,
+                    indexed: true,
+                    ttlSeconds: e.target.value === '' ? undefined : Math.max(0, Number(e.target.value)),
+                  },
+                })
+              }
+            />
+          </div>
+        )}
+      </Section>
+
+      <Section title="Validation">
+        <div>
+          <label className="panel-label" htmlFor="sf-default">Default value</label>
+          <input
+            id="sf-default"
+            className="field-input font-mono text-[12px]"
+            placeholder="Date.now, 0, 'pending'"
+            value={field.validation.defaultVal ?? ''}
+            onChange={(e) => updateValidation({ defaultVal: e.target.value })}
+          />
+        </div>
+        {(field.type === 'String' || field.type === 'UUID') && (
+          <div>
+            <label className="panel-label" htmlFor="sf-match">Match pattern</label>
+            <input
+              id="sf-match"
+              className="field-input font-mono text-[12px]"
+              placeholder="/^\S+@\S+\.\S+$/"
+              value={field.validation.match ?? ''}
+              onChange={(e) => updateValidation({ match: e.target.value })}
+            />
+          </div>
+        )}
+      </Section>
+
+      <Section title="Reference">
+        <Toggle
+          label="Foreign key"
+          hint={ref && targetCol ? `→ ${targetCol.name}` : 'Reference another collection'}
+          checked={!!field.isForeignKey}
+          onChange={(checked) => {
+            if (!checked) {
+              actions().deleteRelationship(relationshipIdForField(field.id));
+              return;
+            }
+            const target = collections.find((c) => c.id !== col.id) ?? collections[0];
+            if (!target) return;
+            actions().addRelationship({
+              sourceCollectionId: col.id,
+              sourceFieldId: field.id,
+              targetCollectionId: target.id,
+              targetFieldId: target.fields.find((f) => f.isPrimaryKey)?.id ?? target.fields[0]?.id ?? '',
+            });
+          }}
+        />
+        {field.isForeignKey && ref && (
+          <div className="space-y-3 rounded-card border border-line bg-surface-subtle p-3">
+            <div>
+              <span className="panel-label">Target collection</span>
+              <Select
+                value={ref.targetCollectionId}
+                options={collections.map((c) => ({ value: c.id, label: c.name }))}
+                onChange={(targetCollectionId) => {
+                  const t = collections.find((c) => c.id === targetCollectionId);
+                  actions().updateRelationship(relationshipIdForField(field.id), {
+                    targetCollectionId,
+                    targetFieldId: t?.fields.find((f) => f.isPrimaryKey)?.id ?? t?.fields[0]?.id ?? '',
+                  });
+                }}
+              />
+            </div>
+            <div>
+              <span className="panel-label">Target field</span>
+              <Select
+                mono
+                value={ref.targetFieldId}
+                options={(targetCol?.fields ?? []).map((f) => ({ value: f.id, label: `${f.name} (${f.type})` }))}
+                onChange={(targetFieldId) => actions().updateRelationship(relationshipIdForField(field.id), { targetFieldId })}
+              />
+            </div>
+            <div>
+              <span className="panel-label">Cardinality</span>
+              <div className="segmented">
+                {(['one-to-one', 'one-to-many', 'many-to-many'] as RelationshipType[]).map((t) => (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => actions().updateRelationship(relationshipIdForField(field.id), { type: t })}
+                    aria-pressed={relType === t}
+                    className="font-mono"
+                  >
+                    {RELATIONSHIP_LABELS[t]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </Section>
+
+      <div className="px-4 py-4">
+        <button
+          type="button"
+          onClick={() => actions().deleteField(col.id, field.id)}
+          className="btn btn-danger w-full"
+        >
+          <Trash2 className="h-3.5 w-3.5" /> Delete field
+        </button>
+      </div>
+    </>
+  );
+}

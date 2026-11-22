@@ -1,51 +1,69 @@
-import React, { useState } from 'react';
-import { Sparkles, X, Loader2, ArrowRight, Database, Check } from 'lucide-react';
-import { CollectionNode, TargetFramework } from '../types';
+import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
+import { Sparkles, X, Loader2, Database, Zap, ShieldCheck, ArrowRight } from 'lucide-react';
+import { CollectionNode } from '../types';
+import { useSchemaStore } from '../store/useSchemaStore';
+import { useModal, useUIStore } from '../store/useUIStore';
+import { useCanvasCommands } from '../hooks/useCanvasCommands';
+import { auditSchema } from '../utils/schemaAuditor';
+import { countRelationships } from '../utils/schemaOps';
 
-interface AiGeneratorModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onApplySchema: (newCollections: CollectionNode[]) => void;
-  framework: TargetFramework;
-}
+export const AiGeneratorModal: React.FC = () => {
+  const { isOpen, close: onClose } = useModal('ai');
+  const framework = useSchemaStore((s) => s.framework);
+  const showToast = useUIStore((s) => s.showToast);
+  const { applyGeneratedSchema } = useCanvasCommands();
 
-export const AiGeneratorModal: React.FC<AiGeneratorModalProps> = ({
-  isOpen,
-  onClose,
-  onApplySchema,
-  framework,
-}) => {
   const [prompt, setPrompt] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingStep, setLoadingStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
+
+  const loadingSteps = [
+    'Synthesizing domain architecture & models…',
+    'Synthesizing relational foreign keys & indexes…',
+    'Applying MongoDB anti-pattern safeguards…',
+    'Arranging multi-row canvas graph…',
+  ];
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingStep(0);
+      return;
+    }
+    const interval = setInterval(() => {
+      setLoadingStep((s) => (s + 1) % loadingSteps.length);
+    }, 1800);
+    return () => clearInterval(interval);
+  }, [loading]);
 
   if (!isOpen) return null;
 
   const quickTemplates = [
     {
-      title: 'E-Commerce Store',
+      title: 'Fintech Wallet & Ledger',
       prompt:
-        'E-Commerce store with Users, Products, Categories, Orders, OrderItems, Cart, and ProductReviews.',
+        'Fintech multi-currency digital wallet with Users, Wallets, LedgerEntries (double-entry accounting), Transactions, PaymentMethods, and FraudAuditLogs.',
     },
     {
-      title: 'SaaS Multi-Tenant',
+      title: 'Food Delivery & Live Riders',
       prompt:
-        'SaaS platform with Organizations, Users, Roles, Subscriptions, Invoices, Projects, and AuditLogs.',
+        'On-demand food delivery app with Customers, Restaurants, Menus, MenuItems, Orders, OrderItems, DeliveryRiders, and LiveLocations.',
     },
     {
-      title: 'Social Network',
+      title: 'Multi-Tenant SaaS',
       prompt:
-        'Social media app with Users, Posts, Comments, PostLikes, FollowerLinks, DirectMessages, and Notifications.',
+        'B2B multi-tenant SaaS platform with Organizations, Users, Roles, Subscriptions, Invoices, Workspaces, and AuditLogs with security indexes.',
     },
     {
-      title: 'LMS Learning Portal',
+      title: 'Healthcare & EHR Clinic',
       prompt:
-        'Online learning portal with Instructors, Students, Courses, Modules, Lessons, EnrolledCourses, and Certificates.',
+        'Modern clinic EHR system with Patients, Doctors, Clinics, Appointments, MedicalRecords, Prescriptions, and InsuranceClaims.',
     },
     {
-      title: 'Healthcare System',
+      title: 'Creator & Video Streaming',
       prompt:
-        'Healthcare clinic database with Patients, Doctors, Appointments, MedicalRecords, Prescriptions, and BillingInvoices.',
+        'Video streaming platform with Creators, Channels, Videos, Playlists, Comments, Subscriptions, and AnalyticsEvents.',
     },
   ];
 
@@ -72,12 +90,27 @@ export const AiGeneratorModal: React.FC<AiGeneratorModalProps> = ({
         throw new Error(json.error || 'Failed to generate schema');
       }
 
-      if (json.data && Array.isArray(json.data.collections)) {
-        onApplySchema(json.data.collections);
+      if (json.data && Array.isArray(json.data.collections) && json.data.collections.length > 0) {
+        const generatedCols: CollectionNode[] = json.data.collections;
+
+        // Apply generated schema with glide layout animation
+        useUIStore.setState({ animateNextLayout: true });
+        applyGeneratedSchema(generatedCols);
+
+        // Audit the generated schema for stats toast
+        const rels = countRelationships(generatedCols);
+        const audit = auditSchema(generatedCols);
+
+        showToast({
+          title: '✨ Architecture Generated!',
+          description: `Created ${generatedCols.length} collections, ${rels} relationships · Health Score: ${audit.score}/100`,
+          type: 'success',
+        });
+
         onClose();
         setPrompt('');
       } else {
-        throw new Error('Invalid schema structure received');
+        throw new Error('Invalid schema structure received from AI engine.');
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred while generating schema.');
@@ -86,49 +119,61 @@ export const AiGeneratorModal: React.FC<AiGeneratorModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4">
-      <div className="w-full max-w-2xl bg-[#000000] border border-neutral-800 rounded-[2rem] shadow-2xl overflow-hidden flex flex-col">
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="AI Schema Generator"
+      className="fixed inset-0 z-[100] flex items-center justify-center p-4 glass-backdrop animate-in fade-in"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl glass-panel rounded-panel overflow-hidden flex flex-col max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Modal Header */}
-        <div className="p-6 border-b border-neutral-800 flex items-center justify-between bg-indigo-950/20">
+        <div className="p-5 border-b border-[var(--glass-border)] flex items-center justify-between bg-[var(--glass-surface-elevated)]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-300">
-              <Sparkles className="w-5 h-5" />
+            <div className="w-9 h-9 rounded-card bg-[var(--glass-hover)] border border-[var(--glass-border)] flex items-center justify-center text-purple-400">
+              <Sparkles className="w-4 h-4 text-purple-400" />
             </div>
             <div>
-              <h3 className="text-lg font-bold text-white">AI Schema Generator</h3>
-              <p className="text-xs text-neutral-400">
-                Describe your application idea, and Gemini will generate complete collections, fields, & foreign key relationships.
+              <h3 className="text-[15px] font-bold text-[var(--glass-text-primary)]">AI Schema Architect</h3>
+              <p className="text-[12px] text-[var(--glass-text-secondary)]">
+                Describe your application idea, and Gemini will engineer collections, field validations, and foreign key relations.
               </p>
             </div>
           </div>
           <button
+            type="button"
             onClick={onClose}
-            className="text-neutral-400 hover:text-white p-1.5 rounded-full transition-colors cursor-pointer"
+            aria-label="Close"
+            className="text-[var(--glass-text-secondary)] hover:text-[var(--glass-text-primary)] p-1.5 rounded-control transition hover:bg-[var(--glass-hover)]"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-6 space-y-6">
+        <div className="p-5 space-y-5 overflow-y-auto">
           {/* Preset Template Chips */}
           <div>
-            <label className="text-xs font-mono text-neutral-400 uppercase tracking-wider block mb-2 font-semibold">
-              Quick Industry Templates
+            <label className="text-[11px] font-mono text-[var(--glass-text-secondary)] uppercase tracking-wider block mb-2 font-semibold">
+              Curated Production Prompts
             </label>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {quickTemplates.map((item) => (
                 <button
                   key={item.title}
+                  type="button"
                   disabled={loading}
                   onClick={() => {
                     setPrompt(item.prompt);
                     handleGenerate(item.prompt);
                   }}
-                  className="px-3.5 py-1.5 rounded-full bg-[#0a0a0a] hover:bg-neutral-800 border border-neutral-800 text-xs text-indigo-300 transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50 font-medium"
+                  className="px-3 py-1.5 rounded-control bg-[var(--glass-surface-elevated)] hover:bg-[var(--glass-hover)] border border-[var(--glass-border)] text-[11.5px] text-[var(--glass-text-primary)] transition flex items-center gap-1.5 disabled:opacity-50 font-medium"
                 >
-                  <Database className="w-3.5 h-3.5 text-indigo-400" />
+                  <Zap className="w-3 h-3 text-amber-400" />
                   <span>{item.title}</span>
                 </button>
               ))}
@@ -136,57 +181,77 @@ export const AiGeneratorModal: React.FC<AiGeneratorModalProps> = ({
           </div>
 
           {/* Custom Prompt Textarea */}
-          <div className="space-y-2">
-            <label className="text-xs font-mono text-neutral-400 uppercase tracking-wider block font-semibold">
-              Custom Prompt
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-mono text-[var(--glass-text-secondary)] uppercase tracking-wider block font-semibold">
+              Or Describe Your Custom Architecture
             </label>
             <textarea
               rows={4}
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder="e.g. Build a fitness tracking database with Users, Workouts, Exercises, Logs, Goals, and WorkoutStreak history with validation..."
+              placeholder="e.g. Build an IoT fleet telematics database with Vehicles, Drivers, DeviceTelemetry, GeofenceAlerts, and MaintenanceLogs..."
               disabled={loading}
-              className="w-full bg-[#0a0a0a] border border-neutral-800 rounded-2xl p-4 text-sm text-white placeholder:text-neutral-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-all font-sans"
+              className="glass-input w-full rounded-card p-3.5 text-[13px] leading-relaxed text-[var(--glass-text-primary)] placeholder:text-[var(--glass-text-placeholder)] caret-[var(--accent-primary)] focus:outline-none font-sans"
             />
           </div>
 
+          {/* Loading status stepper */}
+          {loading && (
+            <div className="p-3.5 bg-[var(--glass-surface-elevated)] border border-[var(--glass-border)] rounded-control flex items-center gap-3 animate-pulse">
+              <Loader2 className="w-4 h-4 text-purple-400 animate-spin shrink-0" />
+              <div className="text-[12px] text-[var(--glass-text-primary)] font-medium">
+                {loadingSteps[loadingStep]}
+              </div>
+            </div>
+          )}
+
           {/* Error Message */}
           {error && (
-            <div className="p-3.5 bg-red-500/10 border border-red-500/20 rounded-xl text-xs text-red-400 font-medium">
+            <div className="p-3 bg-danger-soft border border-danger/40 rounded-control text-[12px] text-danger font-medium">
               {error}
             </div>
           )}
 
           {/* Actions */}
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-neutral-800">
-            <button
-              onClick={onClose}
-              disabled={loading}
-              className="px-4 py-2 text-xs font-semibold text-neutral-400 hover:text-white transition-colors cursor-pointer"
-            >
-              Cancel
-            </button>
+          <div className="flex items-center justify-between pt-3 border-t border-[var(--glass-border)]">
+            <div className="flex items-center gap-1.5 text-[11px] text-[var(--glass-text-secondary)]">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Strict BSON types & foreign key resolution</span>
+            </div>
 
-            <button
-              onClick={() => handleGenerate()}
-              disabled={loading || !prompt.trim()}
-              className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs tracking-wider uppercase rounded-full shadow-[0_0_20px_rgba(99,102,241,0.3)] transition-all flex items-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-white" />
-                  <span>Generating Schema...</span>
-                </>
-              ) : (
-                <>
-                  <Sparkles className="w-4 h-4" />
-                  <span>Generate Schema</span>
-                </>
-              )}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={loading}
+                className="btn btn-ghost text-xs text-[var(--glass-text-secondary)] hover:text-[var(--glass-text-primary)] hover:bg-[var(--glass-hover)]"
+              >
+                Cancel
+              </button>
+
+              <button
+                type="button"
+                onClick={() => handleGenerate()}
+                disabled={loading || !prompt.trim()}
+                className="btn btn-primary text-xs"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Architecting…</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Generate Schema</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 };
