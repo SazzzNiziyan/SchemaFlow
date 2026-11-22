@@ -2,7 +2,9 @@ import { create, useStore } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { temporal, type TemporalState } from 'zundo';
 import type {
+  ApiEndpoint,
   CollectionNode,
+  MiddlewareStep,
   Relationship,
   RelationshipInput,
   SchemaField,
@@ -13,6 +15,7 @@ import type {
 } from '../types';
 import { getTemplate } from '../utils/templates';
 import { findFreePosition, layoutCollections, nextCollectionPosition } from '../utils/autoLayout';
+import { buildDefaultEndpoints } from '../utils/apiCodeGenerator';
 import {
   cloneCollection,
   createId,
@@ -37,6 +40,8 @@ export interface SchemaState extends SelectionState {
   framework: TargetFramework;
   /** Display name of the project (top bar). Not part of undo history. */
   projectName: string;
+  endpoints: ApiEndpoint[];
+  selectedEndpointId: string | null;
 }
 
 export type CollectionPatch = Partial<Omit<CollectionNode, 'id' | 'fields'>>;
@@ -108,6 +113,25 @@ export interface SchemaActions {
   syncFromCode: (parsed: CollectionNode[], scopeIds: string[]) => CodeSyncSummary;
   /** Re-positions collections using a layout function (positions only). */
   applyLayout: (layout: (collections: CollectionNode[]) => CollectionNode[]) => void;
+
+  // ----- API Endpoints & Middlewares --------------------------------
+  /** Generates sensible CRUD endpoints for the collection, replacing any existing ones. */
+  generateDefaultEndpointsForCollection: (collectionId: string) => void;
+  addEndpoint: (endpoint: Omit<ApiEndpoint, 'id'> & { id?: string }) => string;
+  updateEndpoint: (id: string, patch: Partial<Omit<ApiEndpoint, 'id'>>) => void;
+  deleteEndpoint: (id: string) => void;
+  setSelectedEndpoint: (endpointId: string | null) => void;
+  addMiddlewareStep: (
+    endpointId: string,
+    step: Omit<MiddlewareStep, 'id' | 'order'> & { id?: string; order?: number },
+  ) => string | null;
+  updateMiddlewareStep: (
+    endpointId: string,
+    stepId: string,
+    patch: Partial<Omit<MiddlewareStep, 'id'>>,
+  ) => void;
+  removeMiddlewareStep: (endpointId: string, stepId: string) => void;
+  reorderMiddlewareSteps: (endpointId: string, fromIndex: number, toIndex: number) => void;
 }
 
 export interface CodeSyncSummary {
@@ -137,7 +161,7 @@ function canonicalJson(value: unknown): string {
 }
 
 /** Slice of state recorded by undo/redo. Selection & framework are not history. */
-type HistorySlice = Pick<SchemaState, 'collections'>;
+type HistorySlice = Pick<SchemaState, 'collections' | 'endpoints'>;
 
 // ---------------------------------------------------------------------------
 // History grouping
@@ -184,6 +208,8 @@ const initialState: SchemaState = {
   projectName: 'SaaS Platform',
   selectedCollectionId: 'col_saas_orgs',
   selectedFieldId: 'f_org_1',
+  endpoints: [],
+  selectedEndpointId: null,
 };
 
 /** Selection pointing at the first collection / field (or nothing). */
@@ -197,7 +223,13 @@ export const STORAGE_VERSION = 1;
 
 type PersistedState = Pick<
   SchemaState,
-  'collections' | 'framework' | 'projectName' | 'selectedCollectionId' | 'selectedFieldId'
+  | 'collections'
+  | 'framework'
+  | 'projectName'
+  | 'selectedCollectionId'
+  | 'selectedFieldId'
+  | 'endpoints'
+  | 'selectedEndpointId'
 >;
 
 export const useSchemaStore = create<SchemaStore>()(
@@ -242,11 +274,16 @@ export const useSchemaStore = create<SchemaStore>()(
           const s = get();
           if (!s.collections.some((c) => c.id === id)) return;
           const collections = pruneDanglingReferences(s.collections.filter((c) => c.id !== id));
+          const endpoints = s.endpoints.filter((e) => e.collectionId !== id);
+          const selectedEndpointId =
+            endpoints.some((e) => e.id === s.selectedEndpointId)
+              ? s.selectedEndpointId
+              : (endpoints[0]?.id ?? null);
           const selection =
             s.selectedCollectionId === id
               ? selectFirst(collections)
               : reconcileSelection(collections, s);
-          set({ collections, ...selection });
+          set({ collections, endpoints, selectedEndpointId, ...selection });
         },
 
         duplicateCollection: (id) => {
@@ -412,7 +449,14 @@ export const useSchemaStore = create<SchemaStore>()(
           });
         },
 
-        clearCanvas: () => set({ collections: [], selectedCollectionId: null, selectedFieldId: null }),
+        clearCanvas: () =>
+          set({
+            collections: [],
+            selectedCollectionId: null,
+            selectedFieldId: null,
+            endpoints: [],
+            selectedEndpointId: null,
+          }),
 
         replaceCollections: (collections) => set({ collections }),
 
@@ -465,11 +509,135 @@ export const useSchemaStore = create<SchemaStore>()(
           });
           if (changed) set({ collections: next });
         },
+
+        // ----- API Endpoints & Middlewares --------------------------------
+        generateDefaultEndpointsForCollection: (collectionId) => {
+          const col = get().collections.find((c) => c.id === collectionId);
+          if (!col) return;
+          const generated = buildDefaultEndpoints(col);
+          set((s) => {
+            const retained = s.endpoints.filter((e) => e.collectionId !== collectionId);
+            const nextEndpoints = [...retained, ...generated];
+            return {
+              endpoints: nextEndpoints,
+              selectedEndpointId: generated[0]?.id ?? s.selectedEndpointId,
+            };
+          });
+        },
+
+        addEndpoint: (endpoint) => {
+          const id = endpoint.id || createId('ep');
+          const newEndpoint: ApiEndpoint = {
+            ...endpoint,
+            id,
+            middlewares: (endpoint.middlewares || []).map((m, idx) => ({
+              ...m,
+              id: m.id || createId('mw'),
+              order: typeof m.order === 'number' ? m.order : idx,
+            })),
+          };
+          set((s) => ({
+            endpoints: [...s.endpoints, newEndpoint],
+            selectedEndpointId: id,
+          }));
+          return id;
+        },
+
+        updateEndpoint: (id, patch) => {
+          // Typing a path / summary coalesces into one undo step per field.
+          const groupKey = `endpoint:${id}:${Object.keys(patch).sort().join(',')}`;
+          inHistoryGroup(groupKey, () =>
+            set((s) => ({
+              endpoints: s.endpoints.map((ep) => (ep.id === id ? { ...ep, ...patch } : ep)),
+            })),
+          );
+        },
+
+        deleteEndpoint: (id) => {
+          set((s) => {
+            const nextEndpoints = s.endpoints.filter((ep) => ep.id !== id);
+            const selectedEndpointId =
+              s.selectedEndpointId === id ? (nextEndpoints[0]?.id ?? null) : s.selectedEndpointId;
+            return { endpoints: nextEndpoints, selectedEndpointId };
+          });
+        },
+
+        setSelectedEndpoint: (endpointId) => {
+          set({ selectedEndpointId: endpointId });
+        },
+
+        addMiddlewareStep: (endpointId, step) => {
+          const target = get().endpoints.find((ep) => ep.id === endpointId);
+          if (!target) return null;
+          const id = step.id || createId('mw');
+          const order = typeof step.order === 'number' ? step.order : target.middlewares.length;
+          const newStep: MiddlewareStep = {
+            ...step,
+            id,
+            order,
+          };
+          set((s) => ({
+            endpoints: s.endpoints.map((ep) => {
+              if (ep.id !== endpointId) return ep;
+              const middlewares = [...ep.middlewares, newStep].sort((a, b) => a.order - b.order);
+              return { ...ep, middlewares };
+            }),
+          }));
+          return id;
+        },
+
+        updateMiddlewareStep: (endpointId, stepId, patch) => {
+          const groupKey = `mw:${stepId}:${Object.keys(patch).sort().join(',')}`;
+          inHistoryGroup(groupKey, () =>
+            set((s) => ({
+              endpoints: s.endpoints.map((ep) => {
+                if (ep.id !== endpointId) return ep;
+                const middlewares = ep.middlewares
+                  .map((m) => (m.id === stepId ? { ...m, ...patch } : m))
+                  .sort((a, b) => a.order - b.order);
+                return { ...ep, middlewares };
+              }),
+            })),
+          );
+        },
+
+        removeMiddlewareStep: (endpointId, stepId) => {
+          set((s) => ({
+            endpoints: s.endpoints.map((ep) => {
+              if (ep.id !== endpointId) return ep;
+              const middlewares = ep.middlewares
+                .filter((m) => m.id !== stepId)
+                .map((m, idx) => ({ ...m, order: idx }));
+              return { ...ep, middlewares };
+            }),
+          }));
+        },
+
+        reorderMiddlewareSteps: (endpointId, fromIndex, toIndex) => {
+          set((s) => ({
+            endpoints: s.endpoints.map((ep) => {
+              if (ep.id !== endpointId) return ep;
+              const n = ep.middlewares.length;
+              if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= n || toIndex >= n) return ep;
+              const list = [...ep.middlewares];
+              const [moved] = list.splice(fromIndex, 1);
+              list.splice(toIndex, 0, moved);
+              return {
+                ...ep,
+                middlewares: list.map((m, idx) => ({ ...m, order: idx })),
+              };
+            }),
+          }));
+        },
       }),
       {
-        partialize: (state): HistorySlice => ({ collections: state.collections }),
-        // Selection / framework changes leave `collections` untouched → no history entry.
-        equality: (past, current) => past.collections === current.collections,
+        partialize: (state): HistorySlice => ({
+          collections: state.collections,
+          endpoints: state.endpoints,
+        }),
+        // Selection / framework changes leave collections and endpoints untouched → no history entry.
+        equality: (past, current) =>
+          past.collections === current.collections && past.endpoints === current.endpoints,
         limit: 100,
         handleSet: (record) => (past, replace, current, delta) => {
           const now = Date.now();
@@ -498,6 +666,8 @@ export const useSchemaStore = create<SchemaStore>()(
         projectName: s.projectName,
         selectedCollectionId: s.selectedCollectionId,
         selectedFieldId: s.selectedFieldId,
+        endpoints: s.endpoints,
+        selectedEndpointId: s.selectedEndpointId,
       }),
       migrate: (persisted, version) => {
         // v1 is the first persisted shape. Future versions transform `persisted` here.
@@ -512,12 +682,19 @@ export const useSchemaStore = create<SchemaStore>()(
           selectedCollectionId: p.selectedCollectionId ?? null,
           selectedFieldId: p.selectedFieldId ?? null,
         });
+        const endpoints = Array.isArray(p.endpoints) ? p.endpoints : [];
+        const selectedEndpointId =
+          endpoints.some((e) => e.id === p.selectedEndpointId)
+            ? (p.selectedEndpointId ?? null)
+            : (endpoints[0]?.id ?? null);
         return {
           ...current,
           framework: p.framework ?? current.framework,
           projectName: typeof p.projectName === 'string' && p.projectName.trim() ? p.projectName : current.projectName,
           collections,
           ...selection,
+          endpoints,
+          selectedEndpointId,
         };
       },
     },
@@ -559,7 +736,12 @@ function afterTimeTravel() {
   lastGroup = null; // next edit always starts a fresh undo step
   const s = useSchemaStore.getState();
   const selection = reconcileSelection(s.collections, s);
-  if (!sameSelection(selection, s)) useSchemaStore.setState(selection);
+  const patch: Partial<SchemaState> = {};
+  if (!sameSelection(selection, s)) Object.assign(patch, selection);
+  if (s.selectedEndpointId && !s.endpoints.some((e) => e.id === s.selectedEndpointId)) {
+    patch.selectedEndpointId = s.endpoints[0]?.id ?? null;
+  }
+  if (Object.keys(patch).length > 0) useSchemaStore.setState(patch);
 }
 
 export function undo() {

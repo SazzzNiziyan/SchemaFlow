@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { BookOpen, Check, Download, Moon, Redo2, Search, Share2, Sun, Undo2, Upload } from 'lucide-react';
+import { BookOpen, Check, Download, Moon, Network, Redo2, Route, Search, Share2, Sun, Undo2, Upload } from 'lucide-react';
 import { redo, undo, useCanRedo, useCanUndo, useSchemaStore } from '../store/useSchemaStore';
 import { useUIStore } from '../store/useUIStore';
 import { useThemeStore } from '../store/useThemeStore';
@@ -24,6 +24,7 @@ export const TopBar: React.FC = () => {
       <div className="flex min-w-0 items-center gap-2">
         <Logo />
         <ProjectTitle />
+        <ViewSwitch />
         <HealthPill />
         <SchemaCounts onOpenRelations={() => openModal('relationships')} />
       </div>
@@ -118,11 +119,44 @@ function ProjectTitle() {
   );
 }
 
+/** Schema Canvas ⇄ API & Middleware Builder workspace switch. */
+function ViewSwitch() {
+  const view = useUIStore((s) => s.workspaceView);
+  const setView = useUIStore((s) => s.setWorkspaceView);
+  const routeCount = useSchemaStore((s) => s.endpoints.length);
+  return (
+    <div className="segmented !gap-0.5 shrink-0" role="group" aria-label="Workspace">
+      <button type="button" aria-pressed={view === 'canvas'} onClick={() => setView('canvas')} title="Schema Canvas" className="flex items-center gap-1.5">
+        <Network className="h-3.5 w-3.5" />
+        <span className="hidden md:inline">Schema</span>
+      </button>
+      <button
+        type="button"
+        aria-pressed={view === 'api'}
+        onClick={() => setView('api')}
+        title="API & Middleware Builder"
+        className="flex items-center gap-1.5"
+      >
+        <Route className="h-3.5 w-3.5" />
+        <span className="hidden md:inline">API</span>
+        {routeCount > 0 && <span className="tabular font-mono text-[10.5px] text-fg-secondary">{routeCount}</span>}
+      </button>
+    </div>
+  );
+}
+
 /** Real-time Schema Health Score badge that opens the Auditor drawer. */
 function HealthPill() {
   const audit = useSchemaAudit();
-  const toggleAuditor = useUIStore((s) => s.toggleAuditor);
-  const isAuditorOpen = useUIStore((s) => s.isAuditorOpen);
+  const isApiView = useUIStore((s) => s.workspaceView === 'api');
+  const toggleAuditor = () => {
+    const ui = useUIStore.getState();
+    if (!isApiView) return ui.toggleAuditor();
+    // The auditor pans the canvas to issues, so it opens there.
+    ui.setWorkspaceView('canvas');
+    ui.setAuditorOpen(true);
+  };
+  const isAuditorOpen = useUIStore((s) => s.isAuditorOpen && !isApiView);
 
   const dotColor =
     audit.score >= 85
@@ -182,6 +216,7 @@ function SchemaCounts({ onOpenRelations }: { onOpenRelations: () => void }) {
 function SearchBox() {
   const searchQuery = useUIStore((s) => s.searchQuery);
   const setSearchQuery = useUIStore((s) => s.setSearchQuery);
+  const isApiView = useUIStore((s) => s.workspaceView === 'api');
   const toggleCommandPalette = useUIStore((s) => s.toggleCommandPalette);
 
   return (
@@ -198,8 +233,8 @@ function SearchBox() {
             e.currentTarget.blur();
           }
         }}
-        placeholder="Search schema…"
-        aria-label="Search collections and fields"
+        placeholder={isApiView ? 'Search routes…' : 'Search schema…'}
+        aria-label={isApiView ? 'Search routes' : 'Search collections and fields'}
         className="field-input !bg-surface-subtle !pl-8 !pr-16 text-[12.5px]"
       />
       <button

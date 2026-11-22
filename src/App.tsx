@@ -14,6 +14,7 @@ import { ExportModal } from './components/ExportModal';
 import { DocsModal } from './components/DocsModal';
 import { ImportMongoDBModal } from './components/ImportMongoDBModal';
 import { RelationshipModal } from './components/RelationshipModal';
+import { ApiBuilder } from './components/api/ApiBuilder';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { decodeSchemaFromUrlHash } from './utils/urlSnapshot';
 import { useSchemaStore } from './store/useSchemaStore';
@@ -26,6 +27,7 @@ import { layoutCollections } from './utils/autoLayout';
  */
 function Workspace() {
   useKeyboardShortcuts();
+  const view = useUIStore((s) => s.workspaceView);
 
   // Load URL-compressed snapshot on first render if #schema= is present
   useEffect(() => {
@@ -49,14 +51,23 @@ function Workspace() {
 
   return (
     <div className="h-screen w-screen overflow-hidden bg-canvas font-sans text-fg">
-      <Canvas />
+      {/* The canvas stays mounted (viewport, layout) but is inert behind the API builder. */}
+      <div inert={view === 'api'}>
+        <Canvas />
+      </div>
 
       <TopBar />
-      <FieldInspector />
-      <CodeDrawer />
-      <CanvasDock />
-      <CreateCollectionPopover />
-      <SchemaAuditorDrawer />
+      {view === 'canvas' ? (
+        <>
+          <FieldInspector />
+          <CodeDrawer />
+          <CanvasDock />
+          <CreateCollectionPopover />
+          <SchemaAuditorDrawer />
+        </>
+      ) : (
+        <ApiBuilder />
+      )}
       <CommandPalette />
       <ToastNotification />
 

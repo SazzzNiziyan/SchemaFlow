@@ -46,6 +46,10 @@ export function useKeyboardShortcuts() {
 
       if (isTypingTarget(e.target) || isTypingTarget(document.activeElement)) return;
 
+      // Outside the canvas only history shortcuts apply: Delete / copy / paste /
+      // Escape act on canvas selection and must not fire from the API builder.
+      if (ui.workspaceView !== 'canvas' && !(mod && (key === 'z' || key === 'y'))) return;
+
       if (key === 'escape') {
         if (ui.createCollectionAt) ui.closeCreateCollection();
         else useSchemaStore.getState().setSelectedCollection(null);

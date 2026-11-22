@@ -1,12 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, ChevronRight, Copy, PanelRightClose, PanelRightOpen, Plus, Trash2, X } from 'lucide-react';
+import { ArrowRight, ChevronDown, ChevronRight, Copy, PanelRightClose, PanelRightOpen, Plus, Route, Trash2, WandSparkles, X } from 'lucide-react';
 import type { CollectionNode, FieldType, RelationshipType, SchemaField } from '../types';
 import { useSchemaStore } from '../store/useSchemaStore';
 import { AUDITOR_WIDTH, INSPECTOR_WIDTH, SIDE_BY_SIDE_QUERY, useUIStore } from '../store/useUIStore';
 import { useMediaQuery } from '../hooks/useMediaQuery';
 import { countRelationships, relationshipIdForField, RELATIONSHIP_LABELS } from '../utils/schemaOps';
 import { ACCENT_COLORS, COLLECTION_ICONS, accentFor, iconFor } from './nodeVisuals';
+import { openApiBuilder } from '../hooks/useApiBuilder';
+import { collectionBasePath } from '../utils/apiCodeGenerator';
+import { MethodBadge } from './api/apiUi';
 
 const DATA_TYPES: FieldType[] = ['String', 'Number', 'Boolean', 'Date', 'ObjectId', 'Array', 'Enum', 'JSON', 'Decimal', 'UUID'];
 const actions = () => useSchemaStore.getState();
@@ -108,6 +111,15 @@ function InspectorHeader({ col, field, onCollapse }: { col: CollectionNode; fiel
           </>
         )}
       </div>
+      <button
+        type="button"
+        className="btn btn-ghost btn-icon !h-7 !w-7"
+        title={`Open ${col.name} API routes`}
+        aria-label={`Open ${col.name} API routes`}
+        onClick={() => openApiBuilder(col.id)}
+      >
+        <Route className="h-4 w-4" />
+      </button>
       <button type="button" className="btn btn-ghost btn-icon !h-7 !w-7" title="Collapse inspector" onClick={onCollapse}>
         <PanelRightClose className="h-4 w-4" />
       </button>
@@ -198,6 +210,61 @@ function Select<T extends string>({
 // ---------------------------------------------------------------------------
 // Collection panel
 // ---------------------------------------------------------------------------
+
+/** Route summary for the collection with a jump into the API builder. */
+function ApiRoutesSection({ col }: { col: CollectionNode }) {
+  const allEndpoints = useSchemaStore((s) => s.endpoints);
+  const routes = allEndpoints.filter((e) => e.collectionId === col.id);
+  return (
+    <Section
+      title="API routes"
+      aside={
+        routes.length > 0 && (
+          <button type="button" className="btn btn-ghost !h-6 !px-1.5 !text-[11px]" onClick={() => openApiBuilder(col.id)}>
+            Open <ArrowRight className="h-3 w-3" />
+          </button>
+        )
+      }
+    >
+      {routes.length === 0 ? (
+        <button
+          type="button"
+          className="btn btn-secondary w-full"
+          onClick={() => {
+            actions().generateDefaultEndpointsForCollection(col.id);
+            openApiBuilder(col.id);
+          }}
+        >
+          <WandSparkles className="h-3.5 w-3.5" /> Generate CRUD API
+        </button>
+      ) : (
+        <ul className="-mx-1 space-y-0.5">
+          {routes.slice(0, 6).map((ep) => (
+            <li key={ep.id}>
+              <button
+                type="button"
+                onClick={() => {
+                  actions().setSelectedEndpoint(ep.id);
+                  openApiBuilder(col.id);
+                }}
+                className="flex w-full items-center gap-2 rounded-control px-2 py-1.5 text-left transition hover:bg-surface-hover"
+                title={ep.summary}
+              >
+                <MethodBadge method={ep.method} />
+                <span className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-fg">
+                  {ep.path.startsWith(collectionBasePath(col.name)) ? ep.path.slice(collectionBasePath(col.name).length) || '/' : ep.path}
+                </span>
+              </button>
+            </li>
+          ))}
+          {routes.length > 6 && (
+            <li className="px-2 py-1 text-[11.5px] text-fg-secondary">+{routes.length - 6} more</li>
+          )}
+        </ul>
+      )}
+    </Section>
+  );
+}
 
 function CollectionPanel({ col }: { col: CollectionNode }) {
   const [name, setName] = useState(col.name);
@@ -307,6 +374,8 @@ function CollectionPanel({ col }: { col: CollectionNode }) {
           {col.fields.length === 0 && <li className="px-2 py-1.5 text-[12px] text-fg-secondary">No fields yet.</li>}
         </ul>
       </Section>
+
+      <ApiRoutesSection col={col} />
 
       <Section title="Actions">
         <div className="grid grid-cols-2 gap-2">

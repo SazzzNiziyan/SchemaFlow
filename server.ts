@@ -500,9 +500,9 @@ Rules:
         });
 
         // Retry transient overload errors / hung calls with backoff. With
-        // GEMINI_FALLBACK_MODEL set (default gemini-3.6-flash), switch to it after the first primary failure.
-        const primary = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
-        const fallback = (process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-3.6-flash').trim();
+        // GEMINI_FALLBACK_MODEL set (default gemini-2.0-flash), switch to it after the first primary failure.
+        const primary = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
+        const fallback = (process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-2.0-flash').trim();
         const plan =
           fallback && fallback !== primary ? [primary, fallback, fallback] : [primary, primary, primary];
         const ATTEMPT_TIMEOUT_MS = 25_000;

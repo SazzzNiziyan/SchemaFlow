@@ -14,6 +14,9 @@ export interface CreateCollectionAnchor {
   flow: XYPosition;
 }
 
+/** Top-level workspace: the schema canvas or the API & middleware builder. */
+export type WorkspaceView = 'canvas' | 'api';
+
 export interface ToastData {
   id: string;
   title: string;
@@ -22,6 +25,8 @@ export interface ToastData {
 }
 
 interface UIState {
+  /** Which workspace fills the screen below the top bar. */
+  workspaceView: WorkspaceView;
   activeModal: ModalId | null;
   searchQuery: string;
   isCodeDrawerExpanded: boolean;
@@ -43,6 +48,7 @@ interface UIState {
    */
   animateNextLayout: boolean;
 
+  setWorkspaceView: (view: WorkspaceView) => void;
   openModal: (modal: ModalId) => void;
   closeModal: () => void;
   setSearchQuery: (query: string) => void;
@@ -63,6 +69,7 @@ interface UIState {
 let toastTimer: any = null;
 
 export const useUIStore = create<UIState>()((set) => ({
+  workspaceView: 'canvas',
   activeModal: null,
   searchQuery: '',
   isCodeDrawerExpanded: false,
@@ -75,6 +82,14 @@ export const useUIStore = create<UIState>()((set) => ({
   isCommandPaletteOpen: false,
   toast: null,
 
+  // The search box filters collections on the canvas and routes in the API
+  // builder, so a query never carries across. Canvas-only overlays close.
+  setWorkspaceView: (workspaceView) =>
+    set((s) =>
+      s.workspaceView === workspaceView
+        ? {}
+        : { workspaceView, searchQuery: '', createCollectionAt: null, isCodeDrawerExpanded: false, isCommandPaletteOpen: false },
+    ),
   openModal: (activeModal) => set({ activeModal, createCollectionAt: null, isCommandPaletteOpen: false }),
   closeModal: () => set({ activeModal: null }),
   setSearchQuery: (searchQuery) => set({ searchQuery }),

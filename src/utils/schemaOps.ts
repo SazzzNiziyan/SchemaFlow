@@ -1,7 +1,7 @@
 import { CollectionNode, Relationship, RelationshipType, SchemaField, SelectionState } from '../types';
 
 /** Collision-resistant id with a readable prefix, e.g. `col_lq3k9x_ab12cd`. */
-export function createId(prefix: 'col' | 'f' | 'idx'): string {
+export function createId(prefix: 'col' | 'f' | 'idx' | 'ep' | 'mw' | string): string {
   return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 }
 

@@ -245,3 +245,46 @@ export interface ProjectMetadata {
 
 /** Built-in starter templates that `loadTemplate` accepts. */
 export type TemplateId = 'saas' | 'ecommerce' | 'chat' | 'lms' | 'blog' | 'empty';
+
+// ---------------------------------------------------------------------------
+// API Endpoints & Middlewares
+// ---------------------------------------------------------------------------
+
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
+
+export type MiddlewareKind =
+  | 'rateLimit'
+  | 'auth'
+  | 'rbac'
+  | 'validateZod'
+  | 'ownership'
+  | 'auditLog'
+  | 'softDelete';
+
+export interface MiddlewareConfig {
+  roles?: string[];
+  rpm?: number;
+  ownerField?: string;
+  [key: string]: unknown;
+}
+
+export interface MiddlewareStep {
+  id: string;
+  kind: MiddlewareKind;
+  enabled: boolean;
+  order: number;
+  config?: MiddlewareConfig;
+}
+
+export interface ApiEndpoint {
+  id: string;
+  collectionId: string;
+  method: HttpMethod;
+  path: string;
+  summary: string;
+  tags?: string[];
+  queryFields?: string[];
+  bodyFields?: string[];
+  middlewares: MiddlewareStep[];
+}
+

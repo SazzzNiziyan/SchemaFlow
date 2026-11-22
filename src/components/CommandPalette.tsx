@@ -18,6 +18,7 @@ import {
   Database,
   Search,
   Hash,
+  Route,
 } from 'lucide-react';
 import { useSchemaStore } from '../store/useSchemaStore';
 import { useUIStore } from '../store/useUIStore';
@@ -25,6 +26,7 @@ import { useCanvasCommands } from '../hooks/useCanvasCommands';
 import { BLUEPRINTS } from '../utils/templates';
 import { generateShareUrl } from '../utils/urlSnapshot';
 import { MOD_KEY } from './TopBar';
+import { openApiBuilder } from '../hooks/useApiBuilder';
 
 interface CommandItem {
   id: string;
@@ -45,6 +47,8 @@ export const CommandPalette: React.FC = () => {
   const setCodeDrawerExpanded = useUIStore((s) => s.setCodeDrawerExpanded);
   const isCodeDrawerExpanded = useUIStore((s) => s.isCodeDrawerExpanded);
   const showToast = useUIStore((s) => s.showToast);
+  const workspaceView = useUIStore((s) => s.workspaceView);
+  const setWorkspaceView = useUIStore((s) => s.setWorkspaceView);
 
   const collections = useSchemaStore((s) => s.collections);
   const setSelectedCollection = useSchemaStore((s) => s.setSelectedCollection);
@@ -173,6 +177,18 @@ export const CommandPalette: React.FC = () => {
         action: () => setCodeDrawerExpanded(!isCodeDrawerExpanded),
       },
       {
+        id: 'cmd-workspace-view',
+        category: 'Panels & Modals',
+        title: workspaceView === 'api' ? 'Back to Schema Canvas' : 'Open API & Middleware Builder',
+        subtitle:
+          workspaceView === 'api'
+            ? 'Return to the collection graph'
+            : 'Routes, middleware pipelines (auth, RBAC, Zod, rate limits) and live Express code',
+        icon: <Route className="h-4 w-4 text-accent" />,
+        keywords: ['api', 'routes', 'endpoints', 'middleware', 'express', 'rest', 'crud', 'canvas', 'schema'],
+        action: () => setWorkspaceView(workspaceView === 'api' ? 'canvas' : 'api'),
+      },
+      {
         id: 'cmd-export-zip',
         category: 'Panels & Modals',
         title: 'Export Project (.ZIP & Schemas)',
@@ -237,9 +253,21 @@ export const CommandPalette: React.FC = () => {
           icon: <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: col.colorTag || '#3B82F6' }} />,
           keywords: ['jump', 'navigate', col.name.toLowerCase()],
           action: () => {
+            // In the API builder, jumping to a collection switches the route context instead of panning.
+            if (workspaceView === 'api') return openApiBuilder(col.id);
             setSelectedCollection(col.id);
             setCenter(col.position.x + 150, col.position.y + 120, { duration: 400 });
           },
+        };
+
+        const apiItem: CommandItem = {
+          id: `cmd-api-${col.id}`,
+          category: 'Collections & Fields',
+          title: `API Routes: ${col.name}`,
+          subtitle: 'Open this collection in the API & Middleware Builder',
+          icon: <Route className="h-3.5 w-3.5 text-fg-secondary" />,
+          keywords: ['api', 'routes', 'endpoints', 'middleware', col.name.toLowerCase()],
+          action: () => openApiBuilder(col.id),
         };
 
         const fieldItems: CommandItem[] = col.fields.map((f) => ({
@@ -250,18 +278,21 @@ export const CommandPalette: React.FC = () => {
           icon: <Hash className="h-3.5 w-3.5 text-fg-tertiary" />,
           keywords: ['field', col.name.toLowerCase(), f.name.toLowerCase(), f.type.toLowerCase()],
           action: () => {
+            setWorkspaceView('canvas');
             setSelectedCollection(col.id);
             setSelectedField(f.id, col.id);
             setCenter(col.position.x + 150, col.position.y + 120, { duration: 400 });
           },
         }));
 
-        return [colItem, ...fieldItems];
+        return [colItem, apiItem, ...fieldItems];
       }),
     ];
 
     return list;
   }, [
+    workspaceView,
+    setWorkspaceView,
     autoArrange,
     clearCanvas,
     collections,

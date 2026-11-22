@@ -534,6 +534,14 @@ select {
     border-color: var(--border-strong);
   }
 
+  /* Selected list item / card: 1.5px accent ring + 3px soft halo (same as nodes). */
+  .selection-ring {
+    border-color: var(--accent-primary);
+    box-shadow:
+      0 0 0 0.5px var(--accent-primary),
+      0 0 0 3.5px var(--accent-primary-soft);
+  }
+
   /* Toggle switch: sr-only checkbox followed by .switch */
   .switch {
     position: relative;

@@ -17,7 +17,7 @@ import {
   RefreshCw,
   AlertTriangle,
 } from 'lucide-react';
-import { Highlight, type PrismTheme } from 'prism-react-renderer';
+import { CodeViewer } from './CodeViewer';
 import { useSchemaStore, type CodeSyncSummary } from '../store/useSchemaStore';
 import { useUIStore } from '../store/useUIStore';
 import {
@@ -49,68 +49,6 @@ const TABS: { id: CodeTab; label: string; lang: string; ext: string }[] = [
   { id: 'mock', label: 'Mock Data', lang: 'json', ext: 'json' },
   { id: 'sandbox', label: 'Query Sandbox', lang: 'javascript', ext: 'js' },
 ];
-
-/**
- * Custom theme-aware PrismTheme mapping to active CSS variables:
- * Flexoki / Alabaster warm paper in light mode; Warm hardware charcoal in dark mode.
- */
-const themeAwarePrismTheme: PrismTheme = {
-  plain: {
-    color: 'var(--code-text)',
-    backgroundColor: 'transparent',
-  },
-  styles: [
-    {
-      types: ['comment', 'prolog', 'doctype', 'cdata'],
-      style: {
-        color: 'var(--code-comment)',
-        fontStyle: 'italic',
-      },
-    },
-    {
-      types: ['punctuation'],
-      style: {
-        color: 'var(--code-punctuation)',
-      },
-    },
-    {
-      types: ['property', 'tag', 'boolean', 'number', 'constant', 'symbol', 'deleted'],
-      style: {
-        color: 'var(--code-number)',
-      },
-    },
-    {
-      types: ['selector', 'attr-name', 'string', 'char', 'builtin', 'inserted'],
-      style: {
-        color: 'var(--code-string)',
-      },
-    },
-    {
-      types: ['operator', 'entity', 'url'],
-      style: {
-        color: 'var(--code-punctuation)',
-      },
-    },
-    {
-      types: ['atrule', 'attr-value', 'keyword'],
-      style: {
-        color: 'var(--code-keyword)',
-      },
-    },
-    {
-      types: ['function', 'class-name'],
-      style: {
-        color: 'var(--code-function)',
-      },
-    },
-    {
-      types: ['regex', 'important', 'variable'],
-      style: {
-        color: 'var(--code-type)',
-      },
-    },
-  ],
-};
 
 export const CodeDrawer: React.FC = () => {
   const isOpen = useUIStore((s) => s.isCodeDrawerExpanded);
@@ -689,63 +627,5 @@ const ProblemRow: React.FC<{
       ) : null}
       <span className="text-fg-secondary">{message}</span>
     </div>
-  );
-}
-
-/**
- * Syntax highlighter component powered by prism-react-renderer with line numbers
- * and canvas-to-code line highlight.
- * Consumes themeAwarePrismTheme and CSS tokens (--code-*) with IBM Plex Mono font.
- */
-function CodeViewer({
-  code,
-  language,
-  highlightedLineIndex = -1,
-  lineRefs,
-}: {
-  code: string;
-  language: string;
-  highlightedLineIndex?: number;
-  lineRefs?: React.MutableRefObject<Record<number, HTMLDivElement | null>>;
-}) {
-  return (
-    <Highlight theme={themeAwarePrismTheme} code={code} language={language as any}>
-      {({ className, style, tokens, getLineProps, getTokenProps }) => (
-        <pre
-          className={`${className} font-mono text-[13px] leading-[1.65] bg-[var(--code-bg)] text-[var(--code-text)] selection:bg-accent-soft py-3`}
-          style={{ ...style, background: 'var(--code-bg)', color: 'var(--code-text)' }}
-        >
-          {tokens.map((line, i) => {
-            const isHighlighted = i === highlightedLineIndex;
-            return (
-              <div
-                key={i}
-                ref={(el) => {
-                  if (lineRefs) lineRefs.current[i] = el;
-                }}
-                {...getLineProps({ line, key: i })}
-                className={`flex transition-colors duration-150 ${
-                  isHighlighted
-                    ? 'bg-[var(--code-line-highlight)] border-l-2 border-accent pl-1 font-semibold'
-                    : 'hover:bg-surface-hover/50'
-                }`}
-              >
-                {/* Line number gutter with subtle border-subtle divider */}
-                <span className="w-12 shrink-0 select-none text-right pr-3 pl-2 text-[12px] font-mono bg-[var(--code-gutter-bg)] text-[var(--code-gutter-text)] border-r border-line">
-                  {i + 1}
-                </span>
-
-                {/* Code body */}
-                <span className="flex-1 pl-4 pr-3 overflow-x-auto">
-                  {line.map((token, key) => (
-                    <span key={key} {...getTokenProps({ token, key })} />
-                  ))}
-                </span>
-              </div>
-            );
-          })}
-        </pre>
-      )}
-    </Highlight>
   );
 }

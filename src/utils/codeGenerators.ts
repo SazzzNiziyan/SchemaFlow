@@ -889,3 +889,11 @@ export function generateCode(collections: CollectionNode[], framework: TargetFra
       return generateMongooseCode(collections);
   }
 }
+
+export {
+  buildDefaultEndpoints,
+  generateApiRouterCode,
+  generateMiddlewareDeclarations,
+  pluralRouteSegment,
+} from './apiCodeGenerator';
+
