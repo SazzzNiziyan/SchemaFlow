@@ -3,7 +3,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { ChevronDown, ChevronRight, Copy, PanelRightClose, PanelRightOpen, Plus, Trash2, X } from 'lucide-react';
 import type { CollectionNode, FieldType, RelationshipType, SchemaField } from '../types';
 import { useSchemaStore } from '../store/useSchemaStore';
-import { INSPECTOR_WIDTH, useUIStore } from '../store/useUIStore';
+import { AUDITOR_WIDTH, INSPECTOR_WIDTH, SIDE_BY_SIDE_QUERY, useUIStore } from '../store/useUIStore';
+import { useMediaQuery } from '../hooks/useMediaQuery';
 import { countRelationships, relationshipIdForField, RELATIONSHIP_LABELS } from '../utils/schemaOps';
 import { ACCENT_COLORS, COLLECTION_ICONS, accentFor, iconFor } from './nodeVisuals';
 
@@ -19,12 +20,31 @@ export function useInspectorVisible(): boolean {
   return hasSelection && !collapsed;
 }
 
+/**
+ * Right offset of the inspector. The Schema Auditor is docked at the same
+ * edge, so when it is open the inspector moves to its left (if the screen is
+ * wide enough) instead of being drawn underneath it.
+ */
+function useInspectorRight(): { right: number; aboveAuditor: boolean; auditorOpen: boolean } {
+  const auditorOpen = useUIStore((s) => s.isAuditorOpen);
+  const roomForBoth = useMediaQuery(SIDE_BY_SIDE_QUERY);
+  if (!auditorOpen) return { right: 12, aboveAuditor: false, auditorOpen };
+  return roomForBoth
+    ? { right: 12 + AUDITOR_WIDTH + 12, aboveAuditor: false, auditorOpen }
+    : { right: 12, aboveAuditor: true, auditorOpen };
+}
+
 export const FieldInspector: React.FC = () => {
   const col = useSchemaStore((s) => s.collections.find((c) => c.id === s.selectedCollectionId));
   const selectedFieldId = useSchemaStore((s) => s.selectedFieldId);
   const collapsed = useUIStore((s) => s.isInspectorCollapsed);
   const setCollapsed = useUIStore((s) => s.setInspectorCollapsed);
   const field = col?.fields.find((f) => f.id === selectedFieldId);
+  const { right, aboveAuditor, auditorOpen } = useInspectorRight();
+  // With the auditor open, both right-hand panels stop above the bottom dock so the three never collide.
+  const bottom = auditorOpen ? 'bottom-[76px]' : 'bottom-[76px] lg:bottom-3';
+  // Narrow screens: drawn above the auditor (z-40); collapsing it reveals the auditor again.
+  const layer = aboveAuditor ? 'z-40' : 'z-30';
 
   return (
     <>
@@ -36,8 +56,8 @@ export const FieldInspector: React.FC = () => {
             animate={{ x: 0, opacity: 1 }}
             exit={{ x: 28, opacity: 0 }}
             transition={{ type: 'spring', stiffness: 460, damping: 38, mass: 0.8 }}
-            style={{ width: INSPECTOR_WIDTH }}
-            className="panel fixed top-[64px] right-3 bottom-[76px] z-30 flex max-w-[calc(100vw-24px)] flex-col overflow-hidden lg:bottom-3"
+            style={{ width: INSPECTOR_WIDTH, right }}
+            className={`panel fixed top-[64px] ${bottom} ${layer} flex max-w-[calc(100vw-24px)] flex-col overflow-hidden transition-[right] duration-300`}
             aria-label="Inspector"
           >
             <InspectorHeader col={col} field={field} onCollapse={() => setCollapsed(true)} />
@@ -52,7 +72,8 @@ export const FieldInspector: React.FC = () => {
         <button
           type="button"
           onClick={() => setCollapsed(false)}
-          className="panel fixed top-[64px] right-3 z-30 flex h-9 items-center gap-2 px-3 text-[12.5px] font-medium text-fg-secondary transition hover:text-fg"
+          style={{ right }}
+          className={`panel fixed top-[64px] ${layer} flex h-9 items-center gap-2 px-3 text-[12.5px] font-medium text-fg-secondary transition hover:text-fg`}
           title="Open inspector"
         >
           <PanelRightOpen className="h-4 w-4" />

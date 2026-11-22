@@ -111,3 +111,7 @@ export function useModal(id: ModalId) {
 
 /** Inspector is visible when something is selected and the user hasn't collapsed it. */
 export const INSPECTOR_WIDTH = 340;
+/** Width of the Schema Health Auditor drawer (docked at the right edge). */
+export const AUDITOR_WIDTH = 440;
+/** Viewport width at which the inspector and auditor fit side by side. */
+export const SIDE_BY_SIDE_QUERY = '(min-width: 1280px)';

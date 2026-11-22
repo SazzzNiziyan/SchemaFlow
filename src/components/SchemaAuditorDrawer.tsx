@@ -14,7 +14,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { useSchemaStore } from '../store/useSchemaStore';
-import { useUIStore } from '../store/useUIStore';
+import { AUDITOR_WIDTH, useUIStore } from '../store/useUIStore';
 import { useSchemaAudit, type AuditIssue, type AuditSeverity } from '../utils/schemaAuditor';
 import { executeAutoFix, executeFixAll } from '../utils/schemaAutoFix';
 
@@ -88,7 +88,8 @@ export const SchemaAuditorDrawer: React.FC = () => {
   return (
     <aside
       aria-label="Schema Anti-Pattern & Index Auditor"
-      className="fixed top-14 right-3 z-30 flex h-[calc(100vh-72px)] w-[440px] max-w-[calc(100vw-24px)] flex-col rounded-[1.25rem] glass-panel shadow-2xl transition-all duration-300"
+      style={{ width: AUDITOR_WIDTH }}
+      className="fixed top-14 right-3 bottom-[76px] z-30 flex max-w-[calc(100vw-24px)] flex-col rounded-[1.25rem] glass-panel shadow-2xl transition-all duration-300"
     >
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[var(--glass-border)] px-5 py-4">
@@ -252,8 +253,8 @@ export const SchemaAuditorDrawer: React.FC = () => {
                 <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--glass-text-secondary)]">{issue.explanation}</p>
 
                 {/* MongoDB Impact Callout */}
-                <div className="mt-2.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-700 dark:text-amber-300">
-                  <span className="font-semibold text-amber-800 dark:text-amber-200">⚡ Impact: </span>
+                <div className="mt-2.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-900 dark:text-amber-300">
+                  <span className="font-semibold text-amber-950 dark:text-amber-200">⚡ Impact: </span>
                   {issue.mongoImpact}
                 </div>
 
@@ -294,7 +295,7 @@ export const SchemaAuditorDrawer: React.FC = () => {
 function SeverityBadge({ severity }: { severity: AuditSeverity }) {
   if (severity === 'critical') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-[4px] border border-rose-500/30 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:text-rose-300 uppercase tracking-wide">
+      <span className="inline-flex items-center gap-1 rounded-[4px] border border-rose-500/30 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-800 dark:text-rose-300 uppercase tracking-wide">
         <AlertTriangle className="h-3 w-3" />
         Critical
       </span>
@@ -302,14 +303,14 @@ function SeverityBadge({ severity }: { severity: AuditSeverity }) {
   }
   if (severity === 'warning') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-[4px] border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">
+      <span className="inline-flex items-center gap-1 rounded-[4px] border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-300 uppercase tracking-wide">
         <AlertCircle className="h-3 w-3" />
         Warning
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-[4px] border border-blue-500/30 bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">
+    <span className="inline-flex items-center gap-1 rounded-[4px] border border-blue-500/30 bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-800 dark:text-blue-300 uppercase tracking-wide">
       <Info className="h-3 w-3" />
       Info
     </span>

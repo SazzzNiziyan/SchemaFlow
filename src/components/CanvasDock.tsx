@@ -30,7 +30,9 @@ export const CanvasDock: React.FC = () => {
     });
   };
 
-  const shift = inspectorVisible && isWide ? (INSPECTOR_WIDTH + 12) / 2 : 0;
+  // With the auditor open, the right panels end above the dock, so it stays centred.
+  const auditorOpen = useUIStore((s) => s.isAuditorOpen);
+  const shift = inspectorVisible && isWide && !auditorOpen ? (INSPECTOR_WIDTH + 12) / 2 : 0;
 
   return (
     <div
