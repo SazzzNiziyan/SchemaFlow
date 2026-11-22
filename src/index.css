@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* `dark:` utilities follow the app theme (Carbon), not the OS color scheme.
+   Without this, an OS in dark mode applies dark-theme colors on top of the
+   light Paper theme (e.g. pale amber text on a pale amber background). */
+@custom-variant dark (&:where([data-theme="carbon"], [data-theme="carbon"] *));
+
 /* ===========================================================================
    SchemaFlow design tokens
    Two themes, selected by <html data-theme="paper|carbon">. Components must

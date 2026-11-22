@@ -7,6 +7,7 @@ import { useModal, useUIStore } from '../store/useUIStore';
 import { useCanvasCommands } from '../hooks/useCanvasCommands';
 import { auditSchema } from '../utils/schemaAuditor';
 import { countRelationships } from '../utils/schemaOps';
+import { postJson } from '../utils/apiClient';
 
 export const AiGeneratorModal: React.FC = () => {
   const { isOpen, close: onClose } = useModal('ai');
@@ -75,20 +76,10 @@ export const AiGeneratorModal: React.FC = () => {
     setError(null);
 
     try {
-      const response = await fetch('/api/generate-schema', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: finalPrompt,
-          framework,
-        }),
-      });
-
-      const json = await response.json();
-
-      if (!response.ok || !json.success) {
-        throw new Error(json.error || 'Failed to generate schema');
-      }
+      const json = await postJson<{ success: boolean; data?: { collections?: CollectionNode[] } }>(
+        '/api/generate-schema',
+        { prompt: finalPrompt, framework },
+      );
 
       if (json.data && Array.isArray(json.data.collections) && json.data.collections.length > 0) {
         const generatedCols: CollectionNode[] = json.data.collections;

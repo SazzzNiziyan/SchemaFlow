@@ -4,6 +4,7 @@ import { Database, X, Loader2, ArrowRight, ArrowLeft, Check } from 'lucide-react
 import { CollectionNode } from '../types';
 import { useModal } from '../store/useUIStore';
 import { useCanvasCommands } from '../hooks/useCanvasCommands';
+import { postJson } from '../utils/apiClient';
 
 export const ImportMongoDBModal: React.FC = () => {
   const { isOpen, close: onClose } = useModal('importMongo');
@@ -24,14 +25,8 @@ export const ImportMongoDBModal: React.FC = () => {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/mongodb/databases', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uri }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      
+      const data = await postJson<{ databases: string[] }>('/api/mongodb/databases', { uri });
+
       setDatabases(data.databases);
       setStep(2);
     } catch (err: any) {
@@ -46,14 +41,8 @@ export const ImportMongoDBModal: React.FC = () => {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/mongodb/collections', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uri, dbName: selectedDb }),
-      });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      
+      const data = await postJson<{ collections: string[] }>('/api/mongodb/collections', { uri, dbName: selectedDb });
+
       setCollections(data.collections);
       setSelectedCollections(data.collections); // Select all by default
       setStep(3);
@@ -69,14 +58,12 @@ export const ImportMongoDBModal: React.FC = () => {
     setError(null);
     setLoading(true);
     try {
-      const res = await fetch('/api/mongodb/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ uri, dbName: selectedDb, collectionNames: selectedCollections }),
+      const data = await postJson<{ collections: CollectionNode[] }>('/api/mongodb/import', {
+        uri,
+        dbName: selectedDb,
+        collectionNames: selectedCollections,
       });
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error);
-      
+
       onImport(data.collections);
       onClose();
     } catch (err: any) {

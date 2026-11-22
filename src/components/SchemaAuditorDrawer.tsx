@@ -69,10 +69,10 @@ export const SchemaAuditorDrawer: React.FC = () => {
   const score = audit.score;
   const scoreColor =
     score >= 85
-      ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
+      ? 'text-emerald-700 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
       : score >= 60
-        ? 'text-amber-400 border-amber-500/30 bg-amber-500/10'
-        : 'text-rose-400 border-rose-500/30 bg-rose-500/10';
+        ? 'text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10'
+        : 'text-rose-700 dark:text-rose-400 border-rose-500/30 bg-rose-500/10';
 
   const scoreLabel =
     score >= 90
@@ -294,7 +294,7 @@ export const SchemaAuditorDrawer: React.FC = () => {
 function SeverityBadge({ severity }: { severity: AuditSeverity }) {
   if (severity === 'critical') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-[4px] border border-rose-500/30 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-300 uppercase tracking-wide">
+      <span className="inline-flex items-center gap-1 rounded-[4px] border border-rose-500/30 bg-rose-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700 dark:text-rose-300 uppercase tracking-wide">
         <AlertTriangle className="h-3 w-3" />
         Critical
       </span>
@@ -302,14 +302,14 @@ function SeverityBadge({ severity }: { severity: AuditSeverity }) {
   }
   if (severity === 'warning') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-[4px] border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-300 uppercase tracking-wide">
+      <span className="inline-flex items-center gap-1 rounded-[4px] border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300 uppercase tracking-wide">
         <AlertCircle className="h-3 w-3" />
         Warning
       </span>
     );
   }
   return (
-    <span className="inline-flex items-center gap-1 rounded-[4px] border border-blue-500/30 bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-300 uppercase tracking-wide">
+    <span className="inline-flex items-center gap-1 rounded-[4px] border border-blue-500/30 bg-blue-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">
       <Info className="h-3 w-3" />
       Info
     </span>

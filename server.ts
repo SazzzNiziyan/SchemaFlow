@@ -23,7 +23,9 @@ function sanitizeErrorMessage(err: unknown): string {
 }
 
 /** Total time budget for one AI schema generation, including retries. */
-const AI_REQUEST_TIMEOUT_MS = 120_000;
+// Kept under the ~60s request limit common to hosting proxies, so the API always
+// answers (with JSON) before a proxy replaces the reply with its own HTML error page.
+const AI_REQUEST_TIMEOUT_MS = 55_000;
 
 /** Gemini errors worth retrying: overload / rate limit / transient upstream failures. */
 function isTransientAiError(err: unknown): boolean {
@@ -219,10 +221,10 @@ async function startServer() {
         await client.connect();
         const adminDb = client.db('admin');
         const dbs = await adminDb.admin().listDatabases();
-        res.json({ success: true, databases: dbs.databases.map((d) => d.name) });
+        if (!res.headersSent) res.json({ success: true, databases: dbs.databases.map((d) => d.name) });
       } catch (err: unknown) {
         console.error('Error connecting to MongoDB:', sanitizeErrorMessage(err));
-        res.status(500).json({ error: sanitizeErrorMessage(err) });
+        if (!res.headersSent) res.status(500).json({ error: sanitizeErrorMessage(err) });
       } finally {
         await closeClient();
       }
@@ -249,10 +251,10 @@ async function startServer() {
         await client.connect();
         const db = client.db(parsed.data.dbName);
         const collections = await db.listCollections().toArray();
-        res.json({ success: true, collections: collections.map((c) => c.name) });
+        if (!res.headersSent) res.json({ success: true, collections: collections.map((c) => c.name) });
       } catch (err: unknown) {
         console.error('Error fetching collections:', sanitizeErrorMessage(err));
-        res.status(500).json({ error: sanitizeErrorMessage(err) });
+        if (!res.headersSent) res.status(500).json({ error: sanitizeErrorMessage(err) });
       } finally {
         await closeClient();
       }
@@ -376,10 +378,10 @@ async function startServer() {
           });
         });
 
-        res.json({ success: true, collections: generatedCollections });
+        if (!res.headersSent) res.json({ success: true, collections: generatedCollections });
       } catch (err: unknown) {
         console.error('Error importing collections:', sanitizeErrorMessage(err));
-        res.status(500).json({ error: sanitizeErrorMessage(err) });
+        if (!res.headersSent) res.status(500).json({ error: sanitizeErrorMessage(err) });
       } finally {
         await closeClient();
       }
@@ -498,12 +500,12 @@ Rules:
         });
 
         // Retry transient overload errors / hung calls with backoff. With
-        // GEMINI_FALLBACK_MODEL set, switch to it after two primary failures.
+        // GEMINI_FALLBACK_MODEL set (default gemini-3.6-flash), switch to it after the first primary failure.
         const primary = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
         const fallback = (process.env.GEMINI_FALLBACK_MODEL ?? 'gemini-3.6-flash').trim();
         const plan =
-          fallback && fallback !== primary ? [primary, primary, fallback, fallback] : [primary, primary, primary];
-        const ATTEMPT_TIMEOUT_MS = 50_000;
+          fallback && fallback !== primary ? [primary, fallback, fallback] : [primary, primary, primary];
+        const ATTEMPT_TIMEOUT_MS = 25_000;
         let response: Awaited<ReturnType<typeof generate>> | undefined;
         let lastErr: unknown;
         try {
@@ -515,13 +517,13 @@ Rules:
               break;
             } catch (err) {
               lastErr = err;
-              const backoff = 1_500 * 2 ** Math.min(attempt, 2) + Math.random() * 500;
+              const backoff = 1_000 * 2 ** Math.min(attempt, 2) + Math.random() * 300;
               // A per-attempt timeout is retryable; the overall deadline / client disconnect is not.
               const attemptTimedOut = signal.aborted && !controller.signal.aborted;
               const canRetry =
                 (attemptTimedOut || isTransientAiError(err)) &&
                 !controller.signal.aborted &&
-                Date.now() + backoff < deadline - 10_000;
+                Date.now() + backoff < deadline - 5_000;
               if (!canRetry || attempt === plan.length - 1) throw err;
               console.warn(`Gemini attempt ${attempt + 1} (${plan[attempt]}) failed transiently; retrying in ${Math.round(backoff)}ms`);
               await sleep(backoff);
@@ -542,6 +544,27 @@ Rules:
       }
     },
   );
+
+  // The API must only ever answer with JSON. Without these, an unknown /api
+  // route falls through to the SPA's index.html, and Express's default error
+  // handler (e.g. malformed or oversized JSON bodies) replies with an HTML page —
+  // both surface in the browser as `Unexpected token '<' ... is not valid JSON`.
+  app.use('/api', (req, res) => {
+    res.status(404).json({ error: `Unknown API route: ${req.method} ${req.originalUrl}` });
+  });
+  app.use((err: unknown, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    if (res.headersSent) return next(err);
+    const e = err as { status?: number; statusCode?: number; type?: string };
+    const status = e.status ?? e.statusCode ?? 500;
+    const message =
+      e.type === 'entity.too.large'
+        ? 'Request body is too large.'
+        : e.type === 'entity.parse.failed'
+          ? 'Request body is not valid JSON.'
+          : sanitizeErrorMessage(err);
+    if (status >= 500) console.error(`Unhandled error on ${req.method} ${req.originalUrl}:`, message);
+    res.status(status).json({ error: message });
+  });
 
   // Vite dev middleware vs static build serve
   if (process.env.NODE_ENV !== 'production') {
