@@ -1,13 +1,17 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import {
   buildDefaultEndpoints,
+  checkEndpointIndexAlignment,
+  checkQueryIndexAlignment,
   findOwnerField,
   generateApiRouterCode,
   generateMiddlewareDeclarations,
   pluralRouteSegment,
 } from '../apiCodeGenerator';
+import { applyAutoFix } from '../schemaAutoFix';
+import { auditSchema } from '../schemaAuditor';
 import { useSchemaStore } from '../../store/useSchemaStore';
-import type { CollectionNode } from '../../types';
+import type { ApiEndpoint, CollectionNode } from '../../types';
 
 describe('API Route & Middleware Code Generator Engine', () => {
   const sampleUsersCol: CollectionNode = {
@@ -237,6 +241,94 @@ describe('API Route & Middleware Code Generator Engine', () => {
       ep = useSchemaStore.getState().endpoints.find((e) => e.id === epId)!;
       expect(ep.middlewares).toHaveLength(1);
       expect(ep.middlewares[0].kind).toBe('rateLimit');
+    });
+  });
+
+  describe('Query-to-Index Alignment & Auto-Fix', () => {
+    it('flags unindexed query/filter fields and path parameters', () => {
+      // Users collection has 'age', which is not indexed or unique
+      const testEndpoint: ApiEndpoint = {
+        id: 'ep_users_filter_age',
+        collectionId: 'col_users',
+        method: 'GET',
+        path: '/api/users',
+        summary: 'Filter users by age',
+        queryFields: ['page', 'limit', 'age'],
+        middlewares: [],
+      };
+
+      const issues = checkQueryIndexAlignment([testEndpoint], [sampleUsersCol]);
+      expect(issues).toHaveLength(1);
+      expect(issues[0].ruleCode).toBe('UNINDEXED_QUERY_FIELD');
+      expect(issues[0].fieldId).toBe('f_u_4');
+      expect(issues[0].canAutoFix).toBe(true);
+      expect(issues[0].fixLabel).toContain('age');
+    });
+
+    it('does not flag indexed, unique, or primary key query fields', () => {
+      // slug is unique, authorId has indexed: true, _id is primary key
+      const postsColWithIndex: CollectionNode = {
+        ...samplePostsCol,
+        fields: samplePostsCol.fields.map((f) =>
+          f.name === 'authorId' ? { ...f, index: { indexed: true } } : f,
+        ),
+      };
+
+      const testEndpoint: ApiEndpoint = {
+        id: 'ep_posts_filter_author',
+        collectionId: 'col_posts',
+        method: 'GET',
+        path: '/api/posts/:id',
+        summary: 'Get post by ID and filter author',
+        queryFields: ['page', 'limit', 'authorId', 'slug'],
+        middlewares: [],
+      };
+
+      const issues = checkEndpointIndexAlignment([testEndpoint], [postsColWithIndex]);
+      expect(issues).toHaveLength(0);
+    });
+
+    it('successfully auto-fixes UNINDEXED_QUERY_FIELD by adding secondary index', () => {
+      const testEndpoint: ApiEndpoint = {
+        id: 'ep_users_filter_age',
+        collectionId: 'col_users',
+        method: 'GET',
+        path: '/api/users',
+        summary: 'Filter users by age',
+        queryFields: ['age'],
+        middlewares: [],
+      };
+
+      const issues = checkEndpointIndexAlignment([testEndpoint], [sampleUsersCol]);
+      expect(issues).toHaveLength(1);
+
+      const fixResult = applyAutoFix(issues[0], [sampleUsersCol]);
+      const fixedCol = fixResult.nextCollections.find((c) => c.id === 'col_users')!;
+      const fixedField = fixedCol.fields.find((f) => f.id === 'f_u_4')!;
+
+      expect(fixedField.index?.indexed).toBe(true);
+      expect(fixResult.summary).toContain('Added secondary index to query field "age"');
+
+      // Re-auditing with fixed collection leaves 0 issues
+      const cleanIssues = checkEndpointIndexAlignment([testEndpoint], [fixedCol]);
+      expect(cleanIssues).toHaveLength(0);
+    });
+
+    it('integrates query-to-index checks into auditSchema', () => {
+      const unindexedEp: ApiEndpoint = {
+        id: 'ep_users_unindexed',
+        collectionId: 'col_users',
+        method: 'GET',
+        path: '/api/users',
+        summary: 'Query by age',
+        queryFields: ['age'],
+        middlewares: [],
+      };
+
+      const auditResult = auditSchema([sampleUsersCol], [unindexedEp]);
+      const unindexedIssue = auditResult.issues.find((i) => i.ruleCode === 'UNINDEXED_QUERY_FIELD');
+      expect(unindexedIssue).toBeDefined();
+      expect(unindexedIssue?.fieldId).toBe('f_u_4');
     });
   });
 });

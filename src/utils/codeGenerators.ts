@@ -892,7 +892,10 @@ export function generateCode(collections: CollectionNode[], framework: TargetFra
 
 export {
   buildDefaultEndpoints,
+  checkEndpointIndexAlignment,
+  checkQueryIndexAlignment,
   generateApiRouterCode,
+  generateCollectionZodCode,
   generateMiddlewareDeclarations,
   pluralRouteSegment,
 } from './apiCodeGenerator';

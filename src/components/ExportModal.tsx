@@ -12,6 +12,11 @@ import {
   generateExpressApiCode,
   generateJsonSchemaCode,
   generateMockDocuments,
+  generateApiRouterCode,
+  generateMiddlewareDeclarations,
+  generateCollectionZodCode,
+  buildDefaultEndpoints,
+  pluralRouteSegment,
 } from '../utils/codeGenerators';
 import { useSchemaStore } from '../store/useSchemaStore';
 import { useModal } from '../store/useUIStore';
@@ -21,6 +26,7 @@ type ExportTab =
   | 'zod'
   | 'typescript'
   | 'express'
+  | 'middleware'
   | 'jsonSchema'
   | 'prisma'
   | 'postgres'
@@ -34,10 +40,13 @@ export const ExportModal: React.FC = () => {
 
 const ExportModalContent: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const collections = useSchemaStore((s) => s.collections);
+  const endpoints = useSchemaStore((s) => s.endpoints);
   const projectName = useSchemaStore((s) => s.projectName);
   const [activeTab, setActiveTab] = useState<ExportTab>('mongoose');
   const [copied, setCopied] = useState(false);
   const [isZipping, setIsZipping] = useState(false);
+
+  const effectiveEndpoints = endpoints.length > 0 ? endpoints : collections.flatMap(buildDefaultEndpoints);
 
   const getCodeForTab = (tab: ExportTab): string => {
     switch (tab) {
@@ -48,7 +57,9 @@ const ExportModalContent: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       case 'typescript':
         return generateTypeScriptCode(collections);
       case 'express':
-        return generateExpressApiCode(collections);
+        return generateApiRouterCode(effectiveEndpoints, collections);
+      case 'middleware':
+        return generateMiddlewareDeclarations();
       case 'jsonSchema':
         return generateJsonSchemaCode(collections);
       default:
@@ -102,7 +113,7 @@ const ExportModalContent: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const validatorsFolder = zip.folder('src/validators');
       collections.forEach((col) => {
         const modelName = col.name.charAt(0).toUpperCase() + col.name.slice(1).replace(/s$/, '');
-        const singleZodCode = generateZodCode([col]);
+        const singleZodCode = generateCollectionZodCode(col);
         validatorsFolder?.file(`${modelName}.zod.ts`, singleZodCode);
       });
 
@@ -110,15 +121,82 @@ const ExportModalContent: React.FC<{ onClose: () => void }> = ({ onClose }) => {
       const routesFolder = zip.folder('src/routes');
       collections.forEach((col) => {
         const modelName = col.name.charAt(0).toUpperCase() + col.name.slice(1).replace(/s$/, '');
-        const singleRouteCode = generateExpressApiCode([col]);
+        const colEndpoints = endpoints.filter((e) => e.collectionId === col.id);
+        const colRoutes = colEndpoints.length > 0 ? colEndpoints : buildDefaultEndpoints(col);
+        const singleRouteCode = generateApiRouterCode(colRoutes, [col]);
         routesFolder?.file(`${modelName.toLowerCase()}.routes.ts`, singleRouteCode);
       });
 
-      // 4. Types folder
+      // 4. Middleware folder (Express Middlewares)
+      const middlewareFolder = zip.folder('src/middleware');
+      middlewareFolder?.file('index.ts', generateMiddlewareDeclarations());
+
+      // 5. Types folder
       const typesFolder = zip.folder('src/types');
       typesFolder?.file('index.ts', generateTypeScriptCode(collections));
 
-      // 5. Scripts (Indexes migration & Mock seed script)
+      // 6. Express App Entrypoint (src/index.ts)
+      const routeImports = collections
+        .map((c) => {
+          const modelName = c.name.charAt(0).toUpperCase() + c.name.slice(1).replace(/s$/, '');
+          return `import { ${modelName.toLowerCase()}Router } from './routes/${modelName.toLowerCase()}.routes';`;
+        })
+        .join('\n');
+      const routeMounts = collections
+        .map((c) => {
+          const modelName = c.name.charAt(0).toUpperCase() + c.name.slice(1).replace(/s$/, '');
+          const segment = pluralRouteSegment(c.name);
+          return `app.use('/api/${segment}', ${modelName.toLowerCase()}Router);`;
+        })
+        .join('\n');
+
+      const serverEntryCode = `import express from 'express';
+import dotenv from 'dotenv';
+import mongoose from 'mongoose';
+${routeImports}
+
+dotenv.config();
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/${slug}_db';
+
+app.use(express.json({ limit: '1mb' }));
+app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+
+// Health Check
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
+});
+
+// Mount Routes
+${routeMounts}
+
+// Error Handling Middleware
+app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  console.error('[Error]', err);
+  const status = err.status || 500;
+  res.status(status).json({ error: err.message || 'Internal Server Error' });
+});
+
+async function start() {
+  try {
+    await mongoose.connect(MONGODB_URI);
+    console.log('✓ Connected to MongoDB');
+    app.listen(PORT, () => {
+      console.log(\`🚀 Server running on http://localhost:\${PORT}\`);
+    });
+  } catch (err) {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  }
+}
+
+start();
+`;
+      zip.file('src/index.ts', serverEntryCode);
+
+      // 7. Scripts (Indexes migration & Mock seed script)
       const scriptsFolder = zip.folder('scripts');
       scriptsFolder?.file('indexes.js', generateJsonSchemaCode(collections));
 
@@ -259,7 +337,8 @@ const ExportModalContent: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     { id: 'mongoose', label: 'Mongoose (TS)' },
     { id: 'zod', label: 'Zod Validation' },
     { id: 'typescript', label: 'TypeScript Types' },
-    { id: 'express', label: 'Express API' },
+    { id: 'express', label: 'Express Routes' },
+    { id: 'middleware', label: 'Express Middlewares' },
     { id: 'jsonSchema', label: '$jsonSchema & Indexes' },
     { id: 'prisma', label: 'Prisma' },
     { id: 'postgres', label: 'PostgreSQL' },

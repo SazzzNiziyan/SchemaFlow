@@ -1,5 +1,6 @@
 import { ApiEndpoint, CollectionNode, HttpMethod, MiddlewareKind, MiddlewareStep, SchemaField } from '../types';
 import { modelNameFor, singularize } from './naming';
+import type { AuditIssue } from './schemaAuditor';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -190,6 +191,79 @@ export function lintMiddlewareChain(endpoint: ApiEndpoint, collection?: Collecti
   }
   return issues;
 }
+
+// ---------------------------------------------------------------------------
+// Query-to-Index Alignment Checker
+// ---------------------------------------------------------------------------
+
+/**
+ * Inspects each endpoint's queryFields (filter/sort fields) and path params
+ * against the target collection's indexed/unique fields.
+ * Returns non-blocking AuditIssue warnings for any field queried without an index.
+ */
+export function checkEndpointIndexAlignment(
+  endpoints: ApiEndpoint[],
+  collections: CollectionNode[],
+): AuditIssue[] {
+  const issues: AuditIssue[] = [];
+  const seen = new Set<string>();
+
+  for (const ep of endpoints) {
+    const col = collections.find((c) => c.id === ep.collectionId);
+    if (!col) continue;
+
+    const candidateFieldNames = new Set<string>();
+    for (const qf of ep.queryFields ?? []) {
+      const trimmed = qf.trim();
+      if (!trimmed || (PAGINATION_QUERY_KEYS as readonly string[]).includes(trimmed)) continue;
+      if (/^(skip|fields|populate|select|order|offset)$/i.test(trimmed)) continue;
+      candidateFieldNames.add(trimmed);
+    }
+
+    const pathMatches = ep.path.matchAll(/:([a-zA-Z0-9_]+)/g);
+    for (const match of pathMatches) {
+      const param = match[1];
+      if (param.toLowerCase() !== 'id') {
+        candidateFieldNames.add(param);
+      }
+    }
+
+    for (const name of candidateFieldNames) {
+      const field = col.fields.find((f) => f.name.toLowerCase() === name.toLowerCase());
+      if (!field) continue;
+
+      const isIndexed =
+        field.isPrimaryKey ||
+        field.name === '_id' ||
+        field.validation.unique === true ||
+        field.index?.indexed === true ||
+        col.compoundIndexes?.some((ci) => ci.fields.some((cf) => cf.fieldId === field.id));
+
+      if (!isIndexed) {
+        const dedupeKey = `${col.id}:${field.id}:UNINDEXED_QUERY_FIELD`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
+
+        issues.push({
+          id: `aud_${col.id}_${field.id}_unindexed_query`,
+          severity: 'warning',
+          collectionId: col.id,
+          fieldId: field.id,
+          ruleCode: 'UNINDEXED_QUERY_FIELD',
+          title: `Route ${ep.method} ${ep.path} queries unindexed "${field.name}"`,
+          explanation: `Endpoint "${ep.method} ${ep.path}" filters or queries by "${field.name}", but "${field.name}" has no index on collection "${col.name}". High traffic requests will trigger full collection scans (COLLSCAN).`,
+          mongoImpact: 'COLLSCAN on filter queries; query latency spikes to O(N) as collection grows.',
+          canAutoFix: true,
+          fixLabel: `Add Index on "${field.name}"`,
+        });
+      }
+    }
+  }
+
+  return issues;
+}
+
+export const checkQueryIndexAlignment = checkEndpointIndexAlignment;
 
 // ---------------------------------------------------------------------------
 // Default Endpoints Builder
@@ -837,7 +911,23 @@ export function generateEndpointHandlerCode(endpoint: ApiEndpoint, collection: C
     (q) => fieldNames.has(q) && !(PAGINATION_QUERY_KEYS as readonly string[]).includes(q),
   );
 
+  const unindexedQueryFields = (ep.queryFields ?? []).filter((q) => {
+    if ((PAGINATION_QUERY_KEYS as readonly string[]).includes(q)) return false;
+    const fld = collection.fields.find((f) => f.name.toLowerCase() === q.toLowerCase());
+    if (!fld) return false;
+    const isIndexed =
+      fld.isPrimaryKey ||
+      fld.name === '_id' ||
+      fld.validation.unique === true ||
+      fld.index?.indexed === true ||
+      collection.compoundIndexes?.some((ci) => ci.fields.some((cf) => cf.fieldId === fld.id));
+    return !isIndexed;
+  });
+
   let code = `// ${ep.method} ${ep.path} - ${ep.summary}\n`;
+  if (unindexedQueryFields.length > 0) {
+    code += `// WARNING: Query param(s) [${unindexedQueryFields.map((f) => `'${f}'`).join(', ')}] not indexed on "${collection.name}". Add an index to prevent COLLSCAN.\n`;
+  }
   code += `${routerVar}.${methodLower}('${subPath}', ${mwChain}async (req: Request, res: Response, next: NextFunction): Promise<void> => {\n`;
   code += `  try {\n`;
 

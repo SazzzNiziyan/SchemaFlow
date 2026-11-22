@@ -28,6 +28,9 @@ import {
   generateJsonSchemaCode,
   generateMockDataCode,
   generateAggregationPipeline,
+  generateApiRouterCode,
+  generateMiddlewareDeclarations,
+  buildDefaultEndpoints,
 } from '../utils/codeGenerators';
 import { parseMongooseCode, type ParseResult } from '../utils/mongooseParser';
 
@@ -36,6 +39,7 @@ export type CodeTab =
   | 'zod'
   | 'typescript'
   | 'express'
+  | 'middleware'
   | 'jsonSchema'
   | 'mock'
   | 'sandbox';
@@ -44,7 +48,8 @@ const TABS: { id: CodeTab; label: string; lang: string; ext: string }[] = [
   { id: 'mongoose', label: 'Mongoose', lang: 'typescript', ext: 'ts' },
   { id: 'zod', label: 'Zod', lang: 'typescript', ext: 'ts' },
   { id: 'typescript', label: 'TypeScript', lang: 'typescript', ext: 'ts' },
-  { id: 'express', label: 'Express API', lang: 'typescript', ext: 'ts' },
+  { id: 'express', label: 'Express Routes', lang: 'typescript', ext: 'ts' },
+  { id: 'middleware', label: 'Middleware', lang: 'typescript', ext: 'ts' },
   { id: 'jsonSchema', label: '$jsonSchema', lang: 'javascript', ext: 'js' },
   { id: 'mock', label: 'Mock Data', lang: 'json', ext: 'json' },
   { id: 'sandbox', label: 'Query Sandbox', lang: 'javascript', ext: 'js' },
@@ -118,18 +123,24 @@ function CodePanel() {
     [mongooseScope, selectedCol, collections],
   );
 
+  const endpoints = useSchemaStore((s) => s.endpoints);
+  const effectiveEndpoints = useMemo(() => {
+    return endpoints.length > 0 ? endpoints : collections.flatMap(buildDefaultEndpoints);
+  }, [endpoints, collections]);
+
   // Code generation outputs
   const codeOutputs = useMemo(() => {
     return {
       mongoose: generateMongooseCode(scopedCollections, { allCollections: collections }),
       zod: generateZodCode(collections),
       typescript: generateTypeScriptCode(collections),
-      express: generateExpressApiCode(collections),
+      express: generateApiRouterCode(effectiveEndpoints, collections),
+      middleware: generateMiddlewareDeclarations(),
       jsonSchema: generateJsonSchemaCode(collections),
       mock: generateMockDataCode(collections),
       sandbox: '',
     };
-  }, [collections, scopedCollections]);
+  }, [collections, scopedCollections, effectiveEndpoints]);
 
   // Aggregation sandbox generation
   const aggregationResult = useMemo(() => {

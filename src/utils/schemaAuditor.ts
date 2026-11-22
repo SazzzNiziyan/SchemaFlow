@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import type { CollectionNode, SchemaField } from '../types';
+import type { ApiEndpoint, CollectionNode, SchemaField } from '../types';
 import { useSchemaStore } from '../store/useSchemaStore';
+import { checkEndpointIndexAlignment } from './apiCodeGenerator';
 
 export type AuditSeverity = 'critical' | 'warning' | 'info';
 
@@ -12,7 +13,8 @@ export type AuditRuleCode =
   | 'MISSING_UNIQUE_INDEX'
   | 'SENSITIVE_FIELD_EXPOSED'
   | 'DEEP_NESTING'
-  | 'ORPHAN_COLLECTION';
+  | 'ORPHAN_COLLECTION'
+  | 'UNINDEXED_QUERY_FIELD';
 
 export interface AuditIssue {
   id: string;
@@ -83,9 +85,9 @@ export function calculateHealthScore(issues: AuditIssue[], collectionCount: numb
 
 /**
  * Pure, dependency-free MongoDB Schema Anti-Pattern & Index Auditor.
- * Evaluates 8 real MongoDB engineering rules across collections and fields.
+ * Evaluates real MongoDB engineering rules across collections, fields, and API routes.
  */
-export function auditSchema(collections: CollectionNode[]): SchemaAuditResult {
+export function auditSchema(collections: CollectionNode[], endpoints?: ApiEndpoint[]): SchemaAuditResult {
   const issues: AuditIssue[] = [];
   const collectionIssueMap = new Map<string, AuditIssue[]>();
   const fieldIssueMap = new Map<string, AuditIssue[]>();
@@ -313,6 +315,14 @@ export function auditSchema(collections: CollectionNode[]): SchemaAuditResult {
     });
   });
 
+  // ---------------------------------------------------------------------------
+  // Query-to-Index Alignment Checks
+  // ---------------------------------------------------------------------------
+  if (endpoints && endpoints.length > 0) {
+    const routeIndexIssues = checkEndpointIndexAlignment(endpoints, collections);
+    routeIndexIssues.forEach(addIssue);
+  }
+
   const score = calculateHealthScore(issues, collections.length);
   const criticalCount = issues.filter((i) => i.severity === 'critical').length;
   const warningCount = issues.filter((i) => i.severity === 'warning').length;
@@ -330,9 +340,10 @@ export function auditSchema(collections: CollectionNode[]): SchemaAuditResult {
 }
 
 /**
- * Reactive hook that re-computes the Schema Audit result on any collection change.
+ * Reactive hook that re-computes the Schema Audit result on any collection or endpoint change.
  */
 export function useSchemaAudit(): SchemaAuditResult {
   const collections = useSchemaStore((s) => s.collections);
-  return useMemo(() => auditSchema(collections), [collections]);
+  const endpoints = useSchemaStore((s) => s.endpoints);
+  return useMemo(() => auditSchema(collections, endpoints), [collections, endpoints]);
 }

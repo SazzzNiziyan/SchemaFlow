@@ -254,6 +254,32 @@ export function applyAutoFix(issue: AuditIssue, collections: CollectionNode[]): 
       };
     }
 
+    case 'UNINDEXED_QUERY_FIELD': {
+      const nextCollections = collections.map((col) => {
+        if (col.id !== issue.collectionId) return col;
+        return {
+          ...col,
+          fields: col.fields.map((f) => {
+            if (f.id !== issue.fieldId) return f;
+            return {
+              ...f,
+              index: {
+                ...(f.index ?? {}),
+                indexed: true,
+                direction: f.index?.direction ?? 1,
+              },
+            };
+          }),
+        };
+      });
+      const fieldName = targetCol.fields.find((f) => f.id === issue.fieldId)?.name ?? 'field';
+      return {
+        nextCollections,
+        requiresLayout: false,
+        summary: `Added secondary index to query field "${fieldName}"`,
+      };
+    }
+
     default:
       return { nextCollections: collections, requiresLayout: false, summary: 'No auto-fix available' };
   }
