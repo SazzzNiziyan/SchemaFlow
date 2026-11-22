@@ -5,6 +5,9 @@ import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI, Type } from '@google/genai';
 import { MongoClient, ObjectId } from 'mongodb';
 import { z } from 'zod';
+import { getMemoryStatsMb } from './src/utils/serverMetrics';
+
+export { getMemoryStatsMb };
 
 dotenv.config();
 
@@ -52,13 +55,25 @@ function createRateLimiter(windowMs: number, maxRequests: number, endpointName =
   };
 }
 
-/** Strict connection options with fast failover timeouts. */
+/** Conservative connection options with fast failover timeouts for 512MB RAM / 0.1 CPU environments. */
 const MONGO_CLIENT_OPTIONS = {
   serverSelectionTimeoutMS: 5000,
   connectTimeoutMS: 5000,
   socketTimeoutMS: 10000,
-  maxPoolSize: 2,
+  maxPoolSize: 5,
+  minPoolSize: 0,
+  maxIdleTimeMS: 15000,
 };
+
+// Optional interval logger (every 15s) active only when LOG_MEM_STATS === "true"
+if (process.env.LOG_MEM_STATS === 'true') {
+  setInterval(() => {
+    const stats = getMemoryStatsMb();
+    console.log(
+      `[MEM-STATS] Uptime: ${Math.floor(process.uptime())}s | RSS: ${stats.rss}MB | HeapUsed: ${stats.heapUsed}MB | HeapTotal: ${stats.heapTotal}MB | ArrayBuffers: ${stats.arrayBuffers}MB`,
+    );
+  }, 15_000).unref();
+}
 
 // Zod Request Validation Schemas
 const MongoUriValidation = z
@@ -106,14 +121,38 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
 
+  // 1. Cap JSON and URL-encoded body sizes to 1mb to prevent RAM exhaustion
   app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 
-  // Health check
+  // 2. Request timeout guardrail: abort stalled requests under low CPU (0.1 CPU) load
+  const REQUEST_TIMEOUT_MS = 15_000;
+  app.use((_req, res, next) => {
+    res.setTimeout(REQUEST_TIMEOUT_MS, () => {
+      if (!res.headersSent) {
+        res.status(504).json({ error: 'Request timed out under high server load.' });
+      }
+    });
+    next();
+  });
+
+  // Task 1: Health & memory metrics endpoint for monitoring and stress tests
+  app.get('/health', (_req, res) => {
+    res.status(200).json({
+      ok: true,
+      uptimeSec: Math.floor(process.uptime()),
+      memoryMb: getMemoryStatsMb(),
+    });
+  });
+
+  // Backward-compatible API health check
   app.get('/api/health', (_req, res) => {
     res.json({
       status: 'ok',
       service: 'SchemaFlow Core API',
       timestamp: new Date().toISOString(),
+      uptimeSec: Math.floor(process.uptime()),
+      memoryMb: getMemoryStatsMb(),
     });
   });
 
@@ -128,6 +167,11 @@ async function startServer() {
       }
 
       const client = new MongoClient(parsed.data.uri, MONGO_CLIENT_OPTIONS);
+      const closeClient = () => client.close().catch(() => {});
+      req.on('close', () => {
+        if (!res.writableEnded) closeClient();
+      });
+
       try {
         await client.connect();
         const adminDb = client.db('admin');
@@ -137,7 +181,7 @@ async function startServer() {
         console.error('Error connecting to MongoDB:', sanitizeErrorMessage(err));
         res.status(500).json({ error: sanitizeErrorMessage(err) });
       } finally {
-        await client.close().catch(() => {});
+        await closeClient();
       }
     },
   );
@@ -153,6 +197,11 @@ async function startServer() {
       }
 
       const client = new MongoClient(parsed.data.uri, MONGO_CLIENT_OPTIONS);
+      const closeClient = () => client.close().catch(() => {});
+      req.on('close', () => {
+        if (!res.writableEnded) closeClient();
+      });
+
       try {
         await client.connect();
         const db = client.db(parsed.data.dbName);
@@ -162,7 +211,7 @@ async function startServer() {
         console.error('Error fetching collections:', sanitizeErrorMessage(err));
         res.status(500).json({ error: sanitizeErrorMessage(err) });
       } finally {
-        await client.close().catch(() => {});
+        await closeClient();
       }
     },
   );
@@ -179,6 +228,10 @@ async function startServer() {
 
       const { uri, dbName, collectionNames } = parsed.data;
       const client = new MongoClient(uri, MONGO_CLIENT_OPTIONS);
+      const closeClient = () => client.close().catch(() => {});
+      req.on('close', () => {
+        if (!res.writableEnded) closeClient();
+      });
 
       try {
         await client.connect();
@@ -285,7 +338,7 @@ async function startServer() {
         console.error('Error importing collections:', sanitizeErrorMessage(err));
         res.status(500).json({ error: sanitizeErrorMessage(err) });
       } finally {
-        await client.close().catch(() => {});
+        await closeClient();
       }
     },
   );
@@ -320,7 +373,7 @@ async function startServer() {
         });
 
         const response = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
+          model: process.env.GEMINI_MODEL || 'gemini-3.8-flash',
           contents: `You are a principal MongoDB database architect.
 Generate a comprehensive, production-ready schema based on this specification: "${prompt}".
 Target Framework: ${framework}.
@@ -418,9 +471,26 @@ Rules:
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
+  const server = app.listen(PORT, '0.0.0.0', () => {
     console.log(`SchemaFlow backend active on http://0.0.0.0:${PORT}`);
   });
+
+  // Low-resource environment connection and socket timeouts (512MB RAM / 0.1 CPU)
+  server.timeout = 15_000;         // Inactive socket timeout
+  server.keepAliveTimeout = 5_000; // Keep-alive socket timeout
+  server.headersTimeout = 6_000;   // Headers timeout (must exceed keepAliveTimeout)
+  if ('requestTimeout' in server) {
+    (server as any).requestTimeout = 15_000; // Overall request reception timeout
+  }
+
+  // Graceful termination handlers
+  const shutdown = () => {
+    server.close(() => {
+      process.exit(0);
+    });
+  };
+  process.on('SIGTERM', shutdown);
+  process.on('SIGINT', shutdown);
 }
 
 startServer();

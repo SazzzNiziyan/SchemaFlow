@@ -202,9 +202,12 @@ function CodePanel() {
 
   // ----- Mongoose Edit & Sync -------------------------------------------
   const enterEditMode = () => {
-    setDraftCode(codeOutputs.mongoose);
+    // Schema-only code (no TS interfaces): each field lives in exactly one place,
+    // so every edit the user makes is one that Sync can apply.
+    const editable = generateMongooseCode(scopedCollections, { allCollections: collections, interfaces: false });
+    setDraftCode(editable);
     setEditScopeIds(scopedCollections.map((c) => c.id));
-    setParseResult(parseMongooseCode(codeOutputs.mongoose, collections));
+    setParseResult(parseMongooseCode(editable, collections));
     setLastSync(null);
     setIsEditMode(true);
   };
@@ -239,6 +242,15 @@ function CodePanel() {
         title: 'Canvas synced from code',
         description: `${parts.join(', ')}. Press Ctrl/Cmd+Z on the canvas to undo.`,
         type: 'success',
+      });
+    } else {
+      const firstWarning = result.warnings?.[0];
+      useUIStore.getState().showToast({
+        title: 'Nothing to sync',
+        description: firstWarning
+          ? `${firstWarning.line ? `Line ${firstWarning.line}: ` : ''}${firstWarning.message}`
+          : 'The canvas already matches this code. Edit the fields inside new Schema({ ... }) to change the graph.',
+        type: 'info',
       });
     }
   };

@@ -92,4 +92,40 @@ describe('Code → canvas sync (store)', () => {
     undo();
     expect(state().collections).toEqual(before);
   });
+
+  it('renaming a model renames the node in place (same id, position, color and incoming edges)', () => {
+    const before = state().collections;
+    const users = before.find((c) => c.name === 'Users')!;
+    const incoming = () =>
+      state().collections.flatMap((c) => c.fields).filter((f) => f.foreignKeyRef?.targetCollectionId === users.id).length;
+    const edgesBefore = incoming();
+
+    // Only the model() string changes; other schemas still say ref: 'User'.
+    const summary = editAndSync(
+      before.map((c) => c.id),
+      (code) => code.replace("mongoose.model<IUser>('User', userSchema)", "mongoose.model<IUser>('Customer', userSchema)"),
+    );
+
+    expect(summary).toMatchObject({ added: 0, removed: 0, updated: 1 });
+    const renamed = state().collections.find((c) => c.id === users.id)!;
+    expect(renamed.name).toBe('Customer');
+    expect(renamed.position).toEqual(users.position);
+    expect(renamed.colorTag).toBe(users.colorTag);
+    expect(incoming()).toBe(edgesBefore);
+  });
+});
+
+describe('Edits made only in the TypeScript interface', () => {
+  it('warn with the exact line instead of silently doing nothing', () => {
+    state().loadTemplate('saas');
+    const all = state().collections;
+    const code = generateMongooseCode(all).replace('export interface IUser extends Document {\n', '$&  phone: string;\n');
+    const line = code.split('\n').findIndex((l) => l === '  phone: string;') + 1;
+
+    const result = parseMongooseCode(code, all);
+    expect(result.success).toBe(true);
+    expect(result.warnings).toEqual([
+      { line, message: expect.stringContaining('"phone" is only in interface IUser') },
+    ]);
+  });
 });

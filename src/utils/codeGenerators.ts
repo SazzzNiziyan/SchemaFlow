@@ -33,6 +33,12 @@ export interface MongooseCodeOptions {
    * subset of collections (e.g. only the selected one). Defaults to `collections`.
    */
   allCollections?: CollectionNode[];
+  /**
+   * Emit the TypeScript `interface IUser` blocks and generics (default `true`).
+   * The code editor turns this off so every field exists in exactly one place —
+   * the `new Schema({ ... })` that actually drives the canvas.
+   */
+  interfaces?: boolean;
 }
 
 /**
@@ -43,60 +49,66 @@ export interface MongooseCodeOptions {
 export function generateMongooseCode(collections: CollectionNode[], options: MongooseCodeOptions = {}): string {
   if (collections.length === 0) return '// No collections defined';
   const refPool = options.allCollections ?? collections;
+  const withTypes = options.interfaces !== false;
 
-  let code = `import mongoose, { Schema, Document, Model } from 'mongoose';\n\n`;
+  let code = withTypes
+    ? `import mongoose, { Schema, Document, Model } from 'mongoose';\n\n`
+    : `import mongoose, { Schema } from 'mongoose';\n\n`;
 
   collections.forEach((col) => {
     const modelName = modelNameFor(col.name);
     const schemaName = schemaVarFor(col.name);
 
+    code += `// ============================================================================\n`;
+    code += `// ${modelName} ${withTypes ? 'Interface' : 'Schema'} & Model\n`;
+    code += `// ============================================================================\n`;
+
     // TypeScript Document Interface
-    code += `// ============================================================================\n`;
-    code += `// ${modelName} Interface & Model\n`;
-    code += `// ============================================================================\n`;
-    code += `export interface I${modelName} extends Document {\n`;
-    col.fields.forEach((field) => {
-      let tsType = 'string';
-      switch (field.type) {
-        case 'Number':
-          tsType = 'number';
-          break;
-        case 'Decimal':
-          tsType = 'mongoose.Types.Decimal128';
-          break;
-        case 'Boolean':
-          tsType = 'boolean';
-          break;
-        case 'Date':
-          tsType = 'Date';
-          break;
-        case 'ObjectId':
-          tsType = 'mongoose.Types.ObjectId';
-          break;
-        case 'Enum':
-          tsType = field.validation.enumOptions?.length
-            ? field.validation.enumOptions.map(quote).join(' | ')
-            : 'string';
-          break;
-        case 'Array':
-          tsType = field.array?.itemType === 'ObjectId' ? 'mongoose.Types.ObjectId[]' : 'any[]';
-          break;
-        case 'JSON':
-          tsType = 'Record<string, any>';
-          break;
-        default:
-          tsType = 'string';
+    if (withTypes) {
+      code += `export interface I${modelName} extends Document {\n`;
+      col.fields.forEach((field) => {
+        let tsType = 'string';
+        switch (field.type) {
+          case 'Number':
+            tsType = 'number';
+            break;
+          case 'Decimal':
+            tsType = 'mongoose.Types.Decimal128';
+            break;
+          case 'Boolean':
+            tsType = 'boolean';
+            break;
+          case 'Date':
+            tsType = 'Date';
+            break;
+          case 'ObjectId':
+            tsType = 'mongoose.Types.ObjectId';
+            break;
+          case 'Enum':
+            tsType = field.validation.enumOptions?.length
+              ? field.validation.enumOptions.map(quote).join(' | ')
+              : 'string';
+            break;
+          case 'Array':
+            tsType = field.array?.itemType === 'ObjectId' ? 'mongoose.Types.ObjectId[]' : 'any[]';
+            break;
+          case 'JSON':
+            tsType = 'Record<string, any>';
+            break;
+          default:
+            tsType = 'string';
+        }
+        const opt = field.validation.required || field.isPrimaryKey ? '' : '?';
+        code += `  ${field.name}${opt}: ${tsType};\n`;
+      });
+      if (col.timestamps) {
+        code += `  createdAt: Date;\n  updatedAt: Date;\n`;
       }
-      const opt = field.validation.required || field.isPrimaryKey ? '' : '?';
-      code += `  ${field.name}${opt}: ${tsType};\n`;
-    });
-    if (col.timestamps) {
-      code += `  createdAt: Date;\n  updatedAt: Date;\n`;
+      code += `}\n\n`;
     }
-    code += `}\n\n`;
 
     // Mongoose Schema Definition
-    code += `export const ${schemaName} = new Schema<I${modelName}>({\n`;
+    code += `export const ${schemaName} = new Schema${withTypes ? `<I${modelName}>` : ''}({\n`;
 
     col.fields.forEach((field) => {
       if (field.isPrimaryKey && field.name === '_id') return; // Default in Mongoose
@@ -187,7 +199,9 @@ export function generateMongooseCode(collections: CollectionNode[], options: Mon
       });
     }
 
-    code += `export const ${modelName}: Model<I${modelName}> =\n  mongoose.models.${modelName} || mongoose.model<I${modelName}>('${modelName}', ${schemaName});\n\n`;
+    code += withTypes
+      ? `export const ${modelName}: Model<I${modelName}> =\n  mongoose.models.${modelName} || mongoose.model<I${modelName}>('${modelName}', ${schemaName});\n\n`
+      : `export const ${modelName} =\n  mongoose.models.${modelName} || mongoose.model('${modelName}', ${schemaName});\n\n`;
   });
 
   return code.trim();

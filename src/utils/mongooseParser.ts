@@ -416,6 +416,48 @@ interface SchemaDecl {
   definition?: Value;
   options?: Value;
   indexCalls: { keys: Value; options?: Value; line: number }[];
+  /** First generic argument of `new Schema<IUser>(...)`, e.g. `IUser`. */
+  typeArg?: string;
+}
+
+/** Member names of `interface X { ... }` / `type X = { ... }`, for interface ↔ schema drift checks. */
+function collectInterfaces(toks: Token[], vp: ValueParser): Map<string, { name: string; line: number }[]> {
+  const map = new Map<string, { name: string; line: number }[]>();
+  for (let k = 0; k < toks.length - 2; k++) {
+    const t = toks[k];
+    if (t.type !== 'ident' || toks[k + 1].type !== 'ident') continue;
+    if (t.value !== 'interface' && t.value !== 'type') continue;
+    // Find the body `{` (skipping `extends A, B<C>` / `=`), stopping at statement ends.
+    let open = k + 2;
+    while (open < toks.length && !(toks[open].type === 'punct' && (toks[open].value === '{' || toks[open].value === ';'))) open++;
+    if (toks[open]?.value !== '{') continue;
+    const close = vp.matching(open);
+    const members: { name: string; line: number }[] = [];
+    for (let m = open + 1; m < close; m++) {
+      const tok = toks[m];
+      if (tok.type === 'punct' && OPEN.has(tok.value)) {
+        m = vp.matching(m);
+        continue;
+      }
+      const next = toks[m + 1];
+      const after = next?.value === '?' ? toks[m + 2] : next;
+      if ((tok.type === 'ident' || tok.type === 'string') && after?.type === 'punct' && after.value === ':') {
+        if (tok.value !== 'readonly') members.push({ name: tok.value, line: tok.line });
+      }
+      // Skip the member's type annotation up to `;` / `,` at this depth.
+      if (after?.value === ':') {
+        let e = m + 1;
+        while (e < close && !(toks[e].type === 'punct' && (toks[e].value === ';' || toks[e].value === ','))) {
+          if (toks[e].type === 'punct' && OPEN.has(toks[e].value)) e = vp.matching(e);
+          e++;
+        }
+        m = e;
+      }
+    }
+    map.set(toks[k + 1].value, members);
+    k = close;
+  }
+  return map;
 }
 
 const isSchemaCallee = (callee: string) => callee === 'Schema' || /\.Schema$/.test(callee);
@@ -459,7 +501,11 @@ function collectObjectConsts(toks: Token[], vp: ValueParser): Map<string, Value>
   return map;
 }
 
-function discover(code: string): { decls: SchemaDecl[]; warnings: ParseWarning[] } {
+function discover(code: string): {
+  decls: SchemaDecl[];
+  warnings: ParseWarning[];
+  interfaces: Map<string, { name: string; line: number }[]>;
+} {
   const toks = tokenize(code);
   const vp = new ValueParser(toks, code);
   const warnings: ParseWarning[] = [];
@@ -467,6 +513,7 @@ function discover(code: string): { decls: SchemaDecl[]; warnings: ParseWarning[]
   const byTok = new Map<number, SchemaDecl>();
   const byVar = new Map<string, SchemaDecl>();
   const objectConsts = collectObjectConsts(toks, vp);
+  const interfaces = collectInterfaces(toks, vp);
 
   // new Schema(...)
   for (let i = 0; i < toks.length; i++) {
@@ -486,6 +533,7 @@ function discover(code: string): { decls: SchemaDecl[]; warnings: ParseWarning[]
       definition,
       options: args[1],
       indexCalls: [],
+      typeArg: toks[k]?.value === '<' && toks[k + 1]?.type === 'ident' ? toks[k + 1].value : undefined,
     };
     decls.push(decl);
     byTok.set(i, decl);
@@ -521,7 +569,7 @@ function discover(code: string): { decls: SchemaDecl[]; warnings: ParseWarning[]
     }
   }
 
-  return { decls, warnings };
+  return { decls, warnings, interfaces };
 }
 
 // ---------------------------------------------------------------------------
@@ -803,7 +851,7 @@ export function parseMongooseCode(code: string, existingCollections: CollectionN
   if (!code || !code.trim()) return { success: false, error: 'Empty code input' };
 
   try {
-    const { decls, warnings } = discover(code);
+    const { decls, warnings, interfaces } = discover(code);
 
     if (decls.length === 0) {
       return {
@@ -838,6 +886,36 @@ export function parseMongooseCode(code: string, existingCollections: CollectionN
 
     const ctx: Ctx = { warnings, subSchemas, depth: 0 };
     const usedExisting = new Set<string>();
+
+    const collectionOptOf = (d: SchemaDecl) => {
+      const v = prop(d.options, 'collection');
+      return v?.kind === 'string' ? v.value : undefined;
+    };
+    const nameOf = (d: SchemaDecl, i: number) =>
+      d.modelName ?? collectionOptOf(d) ?? (d.varName ? nameFromVar(d.varName) : `Collection${i + 1}`);
+
+    // Match code schemas to canvas collections. Pass 1: by model / collection name.
+    // Pass 2: by schema variable, so renaming `model('User')` → `model('Customer')`
+    // renames the existing node instead of deleting it and creating a new one.
+    const matchOf = new Map<SchemaDecl, CollectionNode>();
+    const claim = (d: SchemaDecl, pred: (c: CollectionNode) => boolean) => {
+      const c = existingCollections.find((x) => !usedExisting.has(x.id) && pred(x));
+      if (c) {
+        matchOf.set(d, c);
+        usedExisting.add(c.id);
+      }
+      return !!c;
+    };
+    collectionDecls.forEach((d, i) => {
+      const name = nameOf(d, i);
+      const opt = collectionOptOf(d);
+      claim(d, (c) => c.name.toLowerCase() === name.toLowerCase()) ||
+        claim(d, (c) => namesMatch(c.name, name)) ||
+        (opt !== undefined && claim(d, (c) => namesMatch(c.name, opt)));
+    });
+    collectionDecls.forEach((d) => {
+      if (!matchOf.has(d) && d.varName) claim(d, (c) => namesMatch(c.name, nameFromVar(d.varName!)));
+    });
     const seenNames = new Map<string, number>();
     const drafts: { col: CollectionNode; fields: DraftField[]; decl: SchemaDecl; existing?: CollectionNode }[] = [];
 
@@ -851,11 +929,7 @@ export function parseMongooseCode(code: string, existingCollections: CollectionN
         };
       }
 
-      const collectionOpt = prop(decl.options, 'collection');
-      const name =
-        decl.modelName ??
-        (collectionOpt?.kind === 'string' ? collectionOpt.value : undefined) ??
-        (decl.varName ? nameFromVar(decl.varName) : `Collection${drafts.length + 1}`);
+      const name = nameOf(decl, drafts.length);
 
       const dupKey = singularize(name.toLowerCase());
       if (seenNames.has(dupKey)) {
@@ -868,13 +942,7 @@ export function parseMongooseCode(code: string, existingCollections: CollectionN
       }
       seenNames.set(dupKey, decl.line);
 
-      const existing =
-        existingCollections.find((c) => !usedExisting.has(c.id) && c.name.toLowerCase() === name.toLowerCase()) ??
-        existingCollections.find((c) => !usedExisting.has(c.id) && namesMatch(c.name, name)) ??
-        (collectionOpt?.kind === 'string'
-          ? existingCollections.find((c) => !usedExisting.has(c.id) && namesMatch(c.name, collectionOpt.value))
-          : undefined);
-      if (existing) usedExisting.add(existing.id);
+      const existing = matchOf.get(decl);
 
       const existingByName = new Map<string, SchemaField>(existing?.fields.map((f) => [f.name.toLowerCase(), f]) ?? []);
       const fields: DraftField[] = [];
@@ -924,6 +992,21 @@ export function parseMongooseCode(code: string, existingCollections: CollectionN
         }
       }
 
+      // Fields added to the TS interface but not to the schema are pure types:
+      // they create nothing in MongoDB, so tell the user where to put them.
+      const iface = decl.typeArg ? interfaces.get(decl.typeArg) : undefined;
+      if (iface) {
+        const implicit = new Set(['_id', 'id', '__v', ...(isTruthy(prop(decl.options, 'timestamps')) ? ['createdAt', 'updatedAt'] : [])]);
+        const schemaFields = new Set(fields.map((f) => f.name));
+        for (const m of iface) {
+          if (schemaFields.has(m.name) || implicit.has(m.name)) continue;
+          warnings.push({
+            message: `"${m.name}" is only in interface ${decl.typeArg} (a TypeScript type) — add it inside new Schema({ ... })${decl.varName ? ` for ${decl.varName}` : ''} to create it on the canvas`,
+            line: m.line,
+          });
+        }
+      }
+
       // schema.index(...) calls
       const compoundIndexes: CompoundIndex[] = [];
       for (const call of decl.indexCalls) {
@@ -967,7 +1050,8 @@ export function parseMongooseCode(code: string, existingCollections: CollectionN
 
       const col: CollectionNode = {
         id: existing?.id ?? createId('col'),
-        name: existing?.name ?? name,
+        // Keep the canvas spelling (`Users`) unless the model was renamed in code.
+        name: existing && namesMatch(existing.name, name) ? existing.name : name,
         icon: existing?.icon ?? 'Database',
         colorTag: existing?.colorTag ?? '#4A6585',
         position: existing?.position ?? { x: 0, y: 0 },
@@ -990,7 +1074,10 @@ export function parseMongooseCode(code: string, existingCollections: CollectionN
         delete f.refLine;
         if (!refName) continue;
         const target =
-          targets.find((c) => c.name.toLowerCase() === refName.toLowerCase()) ?? targets.find((c) => namesMatch(c.name, refName));
+          targets.find((c) => c.name.toLowerCase() === refName.toLowerCase()) ??
+          targets.find((c) => namesMatch(c.name, refName)) ??
+          // A model renamed in this edit is still reachable by its old canvas name.
+          drafts.find((d) => d.existing && namesMatch(d.existing.name, refName))?.col;
         const targetPk = target?.fields.find((x) => x.isPrimaryKey) ?? target?.fields[0];
         if (!target || !targetPk) {
           warnings.push({ message: `ref: '${refName}' on "${f.name}" does not match any collection — no relationship created`, line: refLine });

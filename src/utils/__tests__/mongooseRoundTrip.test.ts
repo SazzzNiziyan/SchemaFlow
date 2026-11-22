@@ -47,6 +47,17 @@ describe('Mongoose round-trip: parse(generate(collections))', () => {
     expect(generateMongooseCode(result.collections!)).toBe(code);
   });
 
+  it.each(templates)('%s blueprint round-trips in the editor format (schema-only, no interfaces)', (id) => {
+    const original = getTemplate(id);
+    const code = generateMongooseCode(original, { interfaces: false });
+    expect(code).not.toContain('interface ');
+    const result = parseMongooseCode(code, original);
+
+    expect(result.success).toBe(true);
+    expect(result.warnings).toEqual([]);
+    expect(normalize(result.collections!)).toEqual(normalize(original));
+  });
+
   it.each(templates)('%s blueprint parses from scratch (no canvas) with all fields, flags and refs', (id) => {
     const original = getTemplate(id);
     const result = parseMongooseCode(generateMongooseCode(original));
