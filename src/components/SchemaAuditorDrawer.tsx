@@ -71,7 +71,7 @@ export const SchemaAuditorDrawer: React.FC = () => {
     score >= 85
       ? 'text-emerald-700 dark:text-emerald-400 border-emerald-500/30 bg-emerald-500/10'
       : score >= 60
-        ? 'text-amber-700 dark:text-amber-400 border-amber-500/30 bg-amber-500/10'
+        ? 'text-warning border-warning-line bg-warning-soft'
         : 'text-rose-700 dark:text-rose-400 border-rose-500/30 bg-rose-500/10';
 
   const scoreLabel =
@@ -175,8 +175,8 @@ export const SchemaAuditorDrawer: React.FC = () => {
             onClick={() => setSeverityFilter('warning')}
             className={`flex items-center gap-1 rounded-md px-2 py-1 font-medium transition ${
               severityFilter === 'warning'
-                ? 'bg-amber-500/20 text-amber-600 dark:text-amber-300 border border-amber-500/30'
-                : 'text-amber-500 hover:bg-amber-500/10'
+                ? 'bg-warning-soft text-warning border border-warning-line'
+                : 'text-warning hover:bg-warning-soft'
             }`}
           >
             <AlertCircle className="h-3 w-3" />
@@ -253,8 +253,8 @@ export const SchemaAuditorDrawer: React.FC = () => {
                 <p className="mt-1 text-[11.5px] leading-relaxed text-[var(--glass-text-secondary)]">{issue.explanation}</p>
 
                 {/* MongoDB Impact Callout */}
-                <div className="mt-2.5 rounded-lg border border-amber-500/20 bg-amber-500/10 px-2.5 py-1.5 text-[11px] text-amber-900 dark:text-amber-300">
-                  <span className="font-semibold text-amber-950 dark:text-amber-200">⚡ Impact: </span>
+                <div className="mt-2.5 rounded-lg border border-warning-line bg-warning-soft px-2.5 py-1.5 text-[11px] text-warning">
+                  <span className="font-bold text-warning">⚡ Impact: </span>
                   {issue.mongoImpact}
                 </div>
 
@@ -303,7 +303,7 @@ function SeverityBadge({ severity }: { severity: AuditSeverity }) {
   }
   if (severity === 'warning') {
     return (
-      <span className="inline-flex items-center gap-1 rounded-[4px] border border-amber-500/30 bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800 dark:text-amber-300 uppercase tracking-wide">
+      <span className="inline-flex items-center gap-1 rounded-[4px] border border-warning-line bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning uppercase tracking-wide">
         <AlertCircle className="h-3 w-3" />
         Warning
       </span>

@@ -147,10 +147,10 @@ export const CollectionNode = memo(({ data }: NodeProps<Node<CollectionNodeData>
             className={`nodrag flex h-5 items-center gap-1 rounded-[4px] px-1.5 font-mono text-[10px] font-semibold transition ${
               hasCritical
                 ? 'border border-danger/40 bg-danger/15 text-danger hover:bg-danger/25'
-                : 'border border-amber-500/40 bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
+                : 'border border-warning-line bg-warning-soft text-warning hover:bg-warning-line/40'
             }`}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${hasCritical ? 'bg-danger' : 'bg-amber-400'}`} />
+            <span className={`h-1.5 w-1.5 rounded-full ${hasCritical ? 'bg-danger' : 'bg-warning'}`} />
             {colIssues.length}
           </button>
         )}
@@ -331,10 +331,10 @@ const FieldRow = memo(function FieldRow({
           className={`nodrag flex h-[18px] shrink-0 items-center gap-1 rounded-[3px] px-1 font-mono text-[9px] font-semibold transition ${
             issue.severity === 'critical'
               ? 'border border-danger/40 bg-danger/15 text-danger hover:bg-danger/25'
-              : 'border border-amber-500/40 bg-amber-500/15 text-amber-400 hover:bg-amber-500/25'
+              : 'border border-warning-line bg-warning-soft text-warning hover:bg-warning-line/40'
           }`}
         >
-          <span className={`h-1 w-1 rounded-full ${issue.severity === 'critical' ? 'bg-danger' : 'bg-amber-400'}`} />
+          <span className={`h-1 w-1 rounded-full ${issue.severity === 'critical' ? 'bg-danger' : 'bg-warning'}`} />
           {issue.ruleCode === 'UNBOUNDED_ARRAY'
             ? 'ARRAY!'
             : issue.ruleCode === 'MISSING_FK_INDEX'

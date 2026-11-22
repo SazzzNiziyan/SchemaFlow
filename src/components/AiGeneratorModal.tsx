@@ -164,7 +164,7 @@ export const AiGeneratorModal: React.FC = () => {
                   }}
                   className="px-3 py-1.5 rounded-control bg-[var(--glass-surface-elevated)] hover:bg-[var(--glass-hover)] border border-[var(--glass-border)] text-[11.5px] text-[var(--glass-text-primary)] transition flex items-center gap-1.5 disabled:opacity-50 font-medium"
                 >
-                  <Zap className="w-3 h-3 text-amber-400" />
+                  <Zap className="w-3 h-3 text-warning" />
                   <span>{item.title}</span>
                 </button>
               ))}

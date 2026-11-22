@@ -39,6 +39,10 @@
   --semantic-idx-soft: #f0fdfa;
   --semantic-danger: #b91c1c;
   --semantic-danger-soft: #fef2f2;
+  /* Warnings: dark amber text on a pale amber fill (>= 7:1 contrast). */
+  --semantic-warning: #7c4a03;
+  --semantic-warning-soft: #fdf3d7;
+  --semantic-warning-line: #ecc97a;
 
   --scrim: rgb(24 24 27 / 0.32);
   /* Default relationship line. --border-strong measured only 1.55:1 on the canvas
@@ -103,6 +107,9 @@
   --semantic-idx-soft: rgb(79 179 165 / 0.14);
   --semantic-danger: #e06c5a;
   --semantic-danger-soft: rgb(224 108 90 / 0.14);
+  --semantic-warning: #f0be5c;
+  --semantic-warning-soft: rgb(240 190 92 / 0.12);
+  --semantic-warning-line: rgb(240 190 92 / 0.35);
 
   --scrim: rgb(0 0 0 / 0.55);
   --edge-stroke: var(--text-muted);
@@ -167,6 +174,9 @@
   --color-idx-soft: var(--semantic-idx-soft);
   --color-danger: var(--semantic-danger);
   --color-danger-soft: var(--semantic-danger-soft);
+  --color-warning: var(--semantic-warning);
+  --color-warning-soft: var(--semantic-warning-soft);
+  --color-warning-line: var(--semantic-warning-line);
   --color-scrim: var(--scrim);
 
   --color-code-bg: var(--code-bg);

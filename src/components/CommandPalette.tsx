@@ -114,7 +114,7 @@ export const CommandPalette: React.FC = () => {
         category: 'Actions',
         title: 'Copy Shareable URL',
         subtitle: 'Compress entire schema architecture into a URL hash',
-        icon: <Share2 className="h-4 w-4 text-amber-400" />,
+        icon: <Share2 className="h-4 w-4 text-warning" />,
         keywords: ['share', 'url', 'export link', 'lz-string', 'link'],
         action: async () => {
           const url = generateShareUrl({ projectName, framework, collections });
@@ -186,7 +186,7 @@ export const CommandPalette: React.FC = () => {
         category: 'Panels & Modals',
         title: 'Import from Live MongoDB',
         subtitle: 'Introspect databases and reverse-engineer schemas',
-        icon: <Upload className="h-4 w-4 text-amber-400" />,
+        icon: <Upload className="h-4 w-4 text-warning" />,
         keywords: ['mongodb', 'uri', 'connection', 'reverse engineer'],
         action: () => openModal('importMongo'),
       },
@@ -215,7 +215,7 @@ export const CommandPalette: React.FC = () => {
         category: 'Blueprints' as const,
         title: `Load Blueprint: ${bp.name}`,
         subtitle: `${bp.description} (${bp.collectionsCount} collections)`,
-        icon: <Database className="h-4 w-4 text-amber-400" />,
+        icon: <Database className="h-4 w-4 text-warning" />,
         keywords: ['template', 'blueprint', 'starter', bp.name.toLowerCase()],
         action: () => {
           loadTemplate(bp.id);

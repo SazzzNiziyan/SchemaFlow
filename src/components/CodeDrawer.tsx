@@ -444,7 +444,7 @@ function CodePanel() {
               onClick={() => (isEditMode ? setIsEditMode(false) : enterEditMode())}
               className={`flex items-center gap-1 rounded-control px-2 py-1 text-xs font-medium transition ${
                 isEditMode
-                  ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                  ? 'bg-warning-soft text-warning border border-warning-line'
                   : 'text-fg-secondary hover:bg-surface-hover hover:text-fg border border-transparent'
               }`}
               title="Toggle bi-directional live code editing & canvas sync"
@@ -464,7 +464,7 @@ function CodePanel() {
                   syncBadge.tone === 'ok'
                     ? 'text-emerald-600 dark:text-emerald-400 bg-emerald-500/10'
                     : syncBadge.tone === 'warn'
-                      ? 'text-amber-600 dark:text-amber-400 bg-amber-500/10'
+                      ? 'text-warning bg-warning-soft'
                       : syncBadge.tone === 'error'
                         ? 'text-rose-600 dark:text-rose-400 bg-rose-500/10'
                         : 'text-fg-muted'
@@ -677,7 +677,7 @@ const ProblemRow: React.FC<{
   message: string;
   onJump: (line: number) => void;
 }> = ({ tone, line, message, onJump }) => {
-  const color = tone === 'error' ? 'text-rose-600 dark:text-rose-400' : 'text-amber-600 dark:text-amber-400';
+  const color = tone === 'error' ? 'text-rose-600 dark:text-rose-400' : 'text-warning';
   const Icon = tone === 'error' ? AlertCircle : AlertTriangle;
   return (
     <div className={`flex items-start gap-1.5 ${color}`}>

@@ -128,14 +128,14 @@ function HealthPill() {
     audit.score >= 85
       ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)]'
       : audit.score >= 60
-        ? 'bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.5)]'
+        ? 'bg-warning shadow-[0_0_8px_rgba(240,190,92,0.5)]'
         : 'bg-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.5)]';
 
   const badgeColor =
     audit.score >= 85
       ? 'hover:border-emerald-500/40 text-emerald-600 dark:text-emerald-400'
       : audit.score >= 60
-        ? 'hover:border-amber-600 dark:text-amber-400'
+        ? 'hover:border-warning-line text-warning'
         : 'hover:border-rose-500/40 text-rose-600 dark:text-rose-400';
 
   return (
